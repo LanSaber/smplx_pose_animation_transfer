@@ -13,7 +13,7 @@ from collada_loader.model_loader import ColladaModel
 SCR_WIDTH = 800
 SCR_HEIGHT = 800
 
-camera = Camera3D(glm.vec3(0.0, 5.0, 30.0))
+camera = Camera3D(glm.vec3(0.0, 200.0, -150.0))
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -67,7 +67,7 @@ def generate_grid_mesh(min, max, step=1.0):
 
 
 def init():
-    grid_vertices, grid_mesh = generate_grid_mesh(-10, 10, step=0.5)
+    grid_vertices, grid_mesh = generate_grid_mesh(-10, 10, step=1)
 
     global shader_program
     shader_program = ShaderProgram("resources/shaders/shader.vs", "resources/shaders/shader.fg")
@@ -82,8 +82,8 @@ def init():
 
     global human_model
 
-    human_model = ColladaModel("resources/human.dae")
-
+    # human_model = ColladaModel("resources/Reaction/Reaction.dae")
+    # human_model = ColladaModel("resources/human.dae")
     glEnable(GL_DEPTH_TEST)
 
 
@@ -95,8 +95,8 @@ def drawFunc():
 
     current_frame = glutGet(GLUT_ELAPSED_TIME)
 
-    projection = glm.perspective(glm.radians(camera.zoom), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 200)
-
+    projection = glm.perspective(glm.radians(90.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 5000)
+    #projection = glm.ortho(-10.0, 10.0, -10.0, 10.0, 0.1, 200.0)
     view = camera.get_view_matrix()
 
     shader_program.use()
@@ -141,6 +141,10 @@ def drawFunc():
     fps_count += 1
     glutSwapBuffers()
     glutPostRedisplay()
+
+    error = glGetError()
+    if error != GL_NO_ERROR:
+        print("OpenGL Error:", error)
 
 
 def calculate_FPS():

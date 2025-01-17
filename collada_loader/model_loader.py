@@ -5,6 +5,10 @@ from OpenGL.GLUT import *
 
 from ctypes import c_float, c_void_p, sizeof
 import numpy as np
+from collada.polylist import Polylist
+from collada.scene import ControllerNode
+from ipywidgets import Controller
+
 from .transformations import quaternion_from_matrix, quaternion_matrix, quaternion_slerp
 
 
@@ -36,94 +40,180 @@ class ColladaModel:
     def __init__(self, collada_file_path):
         model = Collada(collada_file_path)
         self.vao = []
-
-        self.inverse_transform_matrices = [value for _, value in model.controllers[0].joint_matrices.items()]
-
-        self.joints_order = {"Armature_" + joint_name: index for index, joint_name in
-                             enumerate(np.squeeze(model.controllers[0].weight_joints.data))}
+        self.ntriangles = []
+        self.texture = []
+        if not collada_file_path.endswith("human.dae"):
+            self.inverse_transform_matrices = []
+            self.joints_order = {}
+            self.joints_matrix_map = {}
+            for controller in model.controllers:
+                controller_joint_matrices = list(controller.joint_matrices.values())
+                for index, joint_name in enumerate(np.atleast_1d(np.squeeze(controller.weight_joints.data))):
+                    if self.joints_matrix_map.get(joint_name) is None:
+                        self.joints_matrix_map[joint_name] = controller_joint_matrices[index]
+                    elif np.not_equal(self.joints_matrix_map[joint_name], controller_joint_matrices[index]).any():
+                        print("Oh, no!!!!!")
+                    if collada_file_path.endswith("Ramy.dae"):
+                        if self.joints_order.get("Armature_" + joint_name) is None:
+                            self.inverse_transform_matrices.append(controller_joint_matrices[index])
+                            self.joints_order["Armature_" + joint_name] = len(self.inverse_transform_matrices)-1
+                    else:
+                        if self.joints_order.get(joint_name) is None:
+                            self.inverse_transform_matrices.append(controller_joint_matrices[index])
+                            self.joints_order[joint_name] = len(self.inverse_transform_matrices)-1
+            # self.inverse_transform_matrices = [value for _, value in model.controllers[0].joint_matrices.items()]
+            # self.inverse_transform_matrices = np.array(self.inverse_transform_matrices)
+            # self.joints_order = {"Armature_" + joint_name: index for index, joint_name in
+            #                      enumerate(np.squeeze(model.controllers[0].weight_joints.data))}
+        else:
+            self.inverse_transform_matrices = [value for _, value in model.controllers[0].joint_matrices.items()]
+            self.joints_order = {"Armature_" + joint_name: index for index, joint_name in
+                                 enumerate(np.squeeze(model.controllers[0].weight_joints.data))}
+            self.joints_matrix_map = {}
+            for controller in model.controllers:
+                controller_joint_matrices = list(controller.joint_matrices.values())
+                for index, joint_name in enumerate(np.atleast_1d(np.squeeze(controller.weight_joints.data))):
+                    if self.joints_matrix_map.get(joint_name) is None:
+                        self.joints_matrix_map[joint_name] = controller_joint_matrices[index]
+                    elif np.not_equal(self.joints_matrix_map[joint_name], controller_joint_matrices[index]).any():
+                        print("Oh, no!!!!!")
 
         self.joint_count = len(self.joints_order)
 
         for node in model.scenes[0].nodes:
+            if collada_file_path.endswith("Reaction.dae"):
+                if node.id == "mixamorig_Hips":
+                    self.root_joint = Joint(node.id,
+                                            self.inverse_transform_matrices[self.joints_order.get(node.id)])
+                    self.root_joint.children.extend(self.__load_armature(node))
+                for child in node.children:
+                    if isinstance(child, ControllerNode):
+                        self.__load_mesh_data(child)
             if node.id == 'Armature':
                 self.root_joint = Joint(node.children[0].id,
                                         self.inverse_transform_matrices[self.joints_order.get(node.children[0].id)])
                 self.root_joint.children.extend(self.__load_armature(node.children[0]))
-                del self.inverse_transform_matrices
+                # del self.inverse_transform_matrices
+
+                if not collada_file_path.endswith("human.dae"):
+                    self.__load_mesh_data(node.children[1].children[0])
+                    self.__load_mesh_data(node.children[2].children[0])
+                    self.__load_mesh_data(node.children[3].children[0])
+                    self.__load_mesh_data(node.children[4].children[0])
+                    self.__load_mesh_data(node.children[5].children[0])
+                    self.__load_mesh_data(node.children[6].children[0])
+                    self.__load_mesh_data(node.children[7].children[0])
 
             if node.id == "Cube":
                 self.__load_mesh_data(node.children[0])
 
         self.render_static_matrices = [np.identity(4) for _ in range(len(self.joints_order))]
-        self.render_animation_matrices = [i for i in range(len(self.joints_order))]
+        # self.render_animation_matrices = [i for i in range(len(self.joints_order))]
 
-        self.__load_keyframes(model.animations)
+        self.__load_keyframes(model.animations, collada_file_path)
 
         self.doing_animation = False
         self.frame_start_time = None
         self.animation_keyframe_pointer = 0
 
-    def __load_keyframes(self, animation_node):
+    def __load_keyframes(self, animation_node, collada_file_path):
         self.keyframes = []
-        keyframes_times = np.squeeze(animation_node[0].sourceById.get(animation_node[0].id + "-input").data).tolist()
-        for index, time in enumerate(keyframes_times):
-            joint_dict = dict()
-            for animation in animation_node:
-                joint_dict[animation.id] = animation.sourceById.get(animation.id + "-output").data[
-                                           index * 16:(index + 1) * 16].reshape((4, 4))
-            self.keyframes.append(KeyFrame(time, joint_dict))
+        if collada_file_path.endswith("human.dae"):
+            keyframes_times = np.squeeze(animation_node[0].sourceById.get(animation_node[0].id + "-input").data).tolist()
+            for index, time in enumerate(keyframes_times):
+                joint_dict = dict()
+                for animation in animation_node:
+                    joint_name = "_".join(animation.id.split("_")[1:-2])
+                    joint_dict[animation.id] = animation.sourceById.get(animation.id + "-output").data[
+                                               index * 16:(index + 1) * 16].reshape((4, 4))
+                self.keyframes.append(KeyFrame(time, joint_dict))
+        else:
+            node = animation_node[0]
+            id = node.id.split("-")[0]
+            keyframes_times = np.squeeze(node.sourceById.get(id + "-Matrix-animation-input").data).tolist()
+            for index, time in enumerate(keyframes_times):
+                joint_dict = dict()
+                for animation in animation_node:
+                    id = animation.id.split("-")[0]
+                    data = animation.sourceById.get(id + "-Matrix-animation-output-transform").data
+                    joint_dict[id] = data[index * 16:(index + 1) * 16].reshape((4, 4))
+                self.keyframes.append(KeyFrame(time, joint_dict))
+            # time = 0.0
+            # joint_dict = dict()
+            # for joint_name in self.joints_matrix_map.keys():
+            #     joint_key = joint_name + "_pose_matrix"
+            #     joint_dict[joint_key] = np.identity(4)
+            # self.keyframes.append(KeyFrame(time, joint_dict))
+            # self.keyframes.append(KeyFrame(time+0.2, joint_dict))
+            # self.keyframes.append(KeyFrame(time +0.4, joint_dict))
+            dawe = 0
+
 
     def __load_armature(self, node):
         children = []
         for child in node.children:
             if type(child) == collada.scene.Node:
-                joint = Joint(child.id, self.inverse_transform_matrices[self.joints_order.get(child.id)])
-                joint.children.extend(self.__load_armature(child))
-                children.append(joint)
+                if self.joints_order.get(child.id)!=None:
+                    joint = Joint(child.id, self.inverse_transform_matrices[self.joints_order.get(child.id)])
+                    joint.children.extend(self.__load_armature(child))
+                    children.append(joint)
         return children
 
     def __load_mesh_data(self, node):
-        self.ntriangles = []
-        self.texture = []
         weights_data = np.squeeze(node.controller.weights.data)
         for index, mesh_data in enumerate(node.controller.geometry.primitives):
             vertex = []
-            self.ntriangles.append(mesh_data.ntriangles)
+            self.ntriangles.append(len(mesh_data))
             try:
                 material = node.materials[index]
                 diffuse = material.target.effect.diffuse
                 texture_type = "v_color" if type(diffuse) == tuple else "sampler"
             except:
                 texture_type = None
-            for i in range(mesh_data.ntriangles):
-                v = mesh_data.vertex[mesh_data.vertex_index[i]]
-                n = mesh_data.normal[mesh_data.normal_index[i]]
-                if texture_type == "sampler":
-                    t = mesh_data.texcoordset[0][mesh_data.texcoord_indexset[0][i]]
-                elif texture_type == "v_color":
-                    t = np.array(diffuse[:-1]).reshape([1, -1]).repeat([3], axis=0)
-                j_index_ = [node.controller.joint_index[mesh_data.vertex_index[i, 0]],
-                            node.controller.joint_index[mesh_data.vertex_index[i, 1]],
-                            node.controller.joint_index[mesh_data.vertex_index[i, 2]]]
+            for i in range(len(mesh_data)):
+                if isinstance(mesh_data, Polylist):
+                    v = mesh_data.vertex[mesh_data.vertex_index[mesh_data.polystarts[i]:mesh_data.polyends[i]]]
+                    n = mesh_data.normal[mesh_data.normal_index[mesh_data.polystarts[i]:mesh_data.polyends[i]]]
+                    if texture_type == "sampler":
+                        t = mesh_data.texcoordset[0][mesh_data.texcoord_indexset[0][mesh_data.polystarts[i]:mesh_data.polyends[i]]]
+                    elif texture_type == "v_color":
+                        t = np.array(diffuse[:-1]).reshape([1, -1]).repeat([3], axis=0)
+                    j_index_ = []
+                    w_index = []
+                    for vertex_index in list(mesh_data.vertex_index[mesh_data.polystarts[i]:mesh_data.polyends[i]]):
+                        j_index_.append(node.controller.joint_index[vertex_index])
+                        w_index.append(node.controller.weight_index[vertex_index])
 
-                w_index = [node.controller.weight_index[mesh_data.vertex_index[i, 0]],
-                           node.controller.weight_index[mesh_data.vertex_index[i, 1]],
-                           node.controller.weight_index[mesh_data.vertex_index[i, 2]]]
+                    w_ = [weights_data[index] for index in w_index]
+                else:
+                    v = mesh_data.vertex[mesh_data.vertex_index[i]]
+                    n = mesh_data.normal[mesh_data.normal_index[i]]
+                    if texture_type == "sampler":
+                        t = mesh_data.texcoordset[0][mesh_data.texcoord_indexset[0][i]]
+                    elif texture_type == "v_color":
+                        t = np.array(diffuse[:-1]).reshape([1, -1]).repeat([3], axis=0)
+                    j_index_ = [node.controller.joint_index[mesh_data.vertex_index[i, 0]],
+                                node.controller.joint_index[mesh_data.vertex_index[i, 1]],
+                                node.controller.joint_index[mesh_data.vertex_index[i, 2]]]
 
-                w_ = [weights_data[w_index[0]], weights_data[w_index[1]], weights_data[w_index[2]]]
+                    w_index = [node.controller.weight_index[mesh_data.vertex_index[i, 0]],
+                               node.controller.weight_index[mesh_data.vertex_index[i, 1]],
+                               node.controller.weight_index[mesh_data.vertex_index[i, 2]]]
+
+                    w_ = [weights_data[w_index[0]], weights_data[w_index[1]], weights_data[w_index[2]]]
 
                 j_index = []
                 w = []
-                for j in range(3):
-                    if j_index_[j].size < 3:
+                for j in range(len(j_index_)):
+                    if j_index_[j].size < 6:
                         j_index.append(
-                            np.pad(j_index_[j], (0, 3 - j_index_[j].size), 'constant', constant_values=(0, 0))[:3])
+                            np.pad(j_index_[j], (0, 6 - j_index_[j].size), 'constant', constant_values=(0, 0))[:6])
                         w.append(
-                            np.pad(w_[j], (0, 3 - j_index_[j].size), 'constant', constant_values=(0, 0))[:3])
+                            np.pad(w_[j], (0, 6 - j_index_[j].size), 'constant', constant_values=(0, 0))[:6])
                     else:
-                        j_index.append(j_index_[j][:3])
+                        j_index.append(j_index_[j][:6])
 
-                        w.append(w_[j][:3] / np.sum(w_[j][:3]))
+                        w.append(w_[j][:6] / np.sum(w_[j][:6]))
 
                 if not texture_type:
                     vertex.append(np.concatenate((v, n, j_index, w), axis=1))
@@ -139,6 +229,8 @@ class ColladaModel:
 
     def __set_vao(self, points, texture_type):
         points = np.squeeze(points).astype(np.float32)
+        pos = points[:, :3]
+        joint_index = points[:, 6:9]
         self.vao.append(glGenVertexArrays(1))
         vbo = glGenBuffers(1)
         glBindVertexArray(self.vao[-1])
@@ -146,7 +238,7 @@ class ColladaModel:
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, points, GL_STATIC_DRAW)
 
-        step = 14 if texture_type == "sampler" else 15 if texture_type == "v_color" else 12
+        step = 20 if texture_type == "sampler" else 21 if texture_type == "v_color" else 18
 
         glVertexAttribPointer(0, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(0 * sizeof(c_float)))
         glEnableVertexAttribArray(0)
@@ -155,16 +247,20 @@ class ColladaModel:
         glEnableVertexAttribArray(1)
 
         glVertexAttribPointer(2, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(6 * sizeof(c_float)))
-        glEnableVertexAttribArray(2)
-
         glVertexAttribPointer(3, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(9 * sizeof(c_float)))
+        glEnableVertexAttribArray(2)
         glEnableVertexAttribArray(3)
 
-        if texture_type:
-            glVertexAttribPointer(4, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
-                                  c_void_p((12 if texture_type == "sampler" else 13) * sizeof(c_float)))
-
+        glVertexAttribPointer(4, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(12 * sizeof(c_float)))
+        glVertexAttribPointer(5, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(15 * sizeof(c_float)))
         glEnableVertexAttribArray(4)
+        glEnableVertexAttribArray(5)
+
+        if texture_type:
+            glVertexAttribPointer(6, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
+                                  c_void_p((18 if texture_type == "sampler" else 19) * sizeof(c_float)))
+
+        glEnableVertexAttribArray(6)
 
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)
@@ -202,7 +298,7 @@ class ColladaModel:
 
             glBindVertexArray(vao)
 
-            glDrawArrays(GL_TRIANGLES, 0, self.ntriangles[index] * 3)
+            glDrawArrays(GL_TRIANGLES, 0, self.ntriangles[index]*3)
             if self.texture[index] != -1:
                 glBindTexture(GL_TEXTURE_2D, 0)
 
@@ -232,6 +328,11 @@ class ColladaModel:
             matrix = np.matmul(t_m, r_m)
             self.interpolation_joint[key] = matrix
 
+        # for key in self.interpolation_joint.keys():
+        #     self.interpolation_joint[key] = np.linalg.inv(self.joints_matrix_map["_".join(key.split("_")[1:-2])])
+
+        # for i in range(len(self.joints_order)):
+        #     self.render_static_matrices[i] = self.inverse_transform_matrices[i]
         self.load_animation_matrices(self.root_joint, np.identity(4))
         self.render(shader_program)
 
@@ -246,7 +347,13 @@ class ColladaModel:
         return quaternion_matrix(quaternion_slerp(rotation_a, rotation_b, progress))
 
     def load_animation_matrices(self, joint, parent_matrix):
-        p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id + "_pose_matrix"))
+        if self.interpolation_joint.get(joint.id + "_pose_matrix") is None:
+            if self.interpolation_joint.get(joint.id) is None:
+                p = np.matmul(parent_matrix, np.identity(4))
+            else:
+                p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id))
+        else:
+            p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id + "_pose_matrix"))
         for child in joint.children:
             self.load_animation_matrices(child, p)
         self.render_static_matrices[self.joints_order.get(joint.id)] = np.matmul(p, joint.inverse_transform_matrix)

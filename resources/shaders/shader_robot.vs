@@ -1,13 +1,13 @@
 #version 330 core
 
-const int MAX_JOINTS = 50;
-const int MAX_WEIGHTS = 3;
+const int MAX_JOINTS = 70;
+const int MAX_WEIGHTS = 6;
 
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec3 jointIndex;
-layout (location = 3) in vec3 jointWeight;
-layout (location = 4) in vec2 aTexCoord;
+layout (location = 2) in mat3x2 jointIndex;
+layout (location = 4) in mat3x2 jointWeight;
+layout (location = 6) in vec2 aTexCoord;
 
 out vec2 TexCoord;
 
@@ -26,9 +26,11 @@ void main()
 
 	for(int i = 0;i < MAX_WEIGHTS; i++){
 
-		mat4 jointTransform = jointTransforms[int(jointIndex[i])];
+        int index_i = i/3;
+        int index_j = i%3;
+		mat4 jointTransform = jointTransforms[int(jointIndex[index_i][index_j])];
 		vec4 posePosition = jointTransform * vec4(aPos, 1.0);
-		totalLocalPos += posePosition * jointWeight[i];
+		totalLocalPos += posePosition * jointWeight[index_i][index_j];
 
 		//vec4 worldNormal = jointTransform * vec4(aNormal, 0.0);
 		//totalNormal += worldNormal * jointWeight[i];
