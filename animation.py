@@ -13,7 +13,8 @@ from collada_loader.model_loader import ColladaModel
 SCR_WIDTH = 800
 SCR_HEIGHT = 800
 
-camera = Camera3D(glm.vec3(0.0, 200.0, -150.0))
+# camera = Camera3D(glm.vec3(0.0, 0.0, 100.0))
+camera = Camera3D(glm.vec3(0.0, 200.0, -200.0))
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -67,7 +68,8 @@ def generate_grid_mesh(min, max, step=1.0):
 
 
 def init():
-    grid_vertices, grid_mesh = generate_grid_mesh(-10, 10, step=1)
+    grid_vertices, grid_mesh = generate_grid_mesh(-200, 200, step=20)
+
 
     global shader_program
     shader_program = ShaderProgram("resources/shaders/shader.vs", "resources/shaders/shader.fg")
@@ -82,7 +84,7 @@ def init():
 
     global human_model
 
-    # human_model = ColladaModel("resources/Reaction/Reaction.dae")
+    human_model = ColladaModel("resources/Reaction/Reaction.dae")
     # human_model = ColladaModel("resources/human.dae")
     glEnable(GL_DEPTH_TEST)
 
@@ -120,6 +122,18 @@ def drawFunc():
     m = glm.mat4(1.0)
     m = glm.rotate(m, glm.radians(-90), glm.vec3(1, 0, 0))
     robot_program.set_matrix("model", glm.value_ptr(m))
+
+    # # Define the light properties
+    # light_direction = np.array([0.0, -1.0, -1.0], dtype=np.float32)  # Direction of light
+    # light_ambient = np.array([0.1, 0.1, 0.1], dtype=np.float32)  # Ambient intensity
+    # light_diffuse = np.array([0.8, 0.8, 0.8], dtype=np.float32)  # Diffuse intensity
+    # light_specular = np.array([1.0, 1.0, 1.0], dtype=np.float32)  # Specular intensity
+    #
+    # # Set uniforms
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightDirection"), 1, light_direction)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightAmbient"), 1, light_ambient)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightDiffuse"), 1, light_diffuse)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightSpecular"), 1, light_specular)
 
     robot_program.un_use()
 

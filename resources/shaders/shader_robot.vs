@@ -5,12 +5,13 @@ const int MAX_WEIGHTS = 6;
 
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
-layout (location = 2) in mat3x2 jointIndex;
-layout (location = 4) in mat3x2 jointWeight;
-layout (location = 6) in vec2 aTexCoord;
+layout (location = 2) in mat3x3 jointIndex;
+layout (location = 5) in mat3x3 jointWeight;
+layout (location = 8) in vec2 aTexCoord;
 
 out vec2 TexCoord;
-
+out vec3 fragPos;
+out vec3 fragNormal;
 
 uniform mat4 model;
 uniform mat4 view;

@@ -1,3 +1,5 @@
+import os.path
+
 from collada import Collada
 import collada
 from OpenGL.GL import *
@@ -8,14 +10,17 @@ import numpy as np
 from collada.polylist import Polylist
 from collada.scene import ControllerNode
 from ipywidgets import Controller
+from scipy.constants import degree, value
+from smplx.lbs import batch_rodrigues
 
-from .transformations import quaternion_from_matrix, quaternion_matrix, quaternion_slerp
+from .transformations import quaternion_from_matrix, quaternion_matrix, quaternion_slerp, rotation_matrix
 
 
 class Joint:
     def __init__(self, id, inverse_transform_matrix):
         self.id = id
         self.children = []
+        self.parent = None
         self.inverse_transform_matrix = inverse_transform_matrix
 
 
@@ -79,6 +84,9 @@ class ColladaModel:
                         print("Oh, no!!!!!")
 
         self.joint_count = len(self.joints_order)
+        unbind_bone_name = ["mixamorig_LeftHandThumb4", "mixamorig_LeftHandIndex4", "mixamorig_LeftHandMiddle4", "mixamorig_LeftHandRing4", "mixamorig_LeftHandPinky4",
+                                 "mixamorig_RightHandThumb4", "mixamorig_RightHandIndex4", "mixamorig_RightHandMiddle4", "mixamorig_RightHandRing4", "mixamorig_RightHandPinky4"]
+        self.unbind_bone_index = np.array([self.joints_order[joint_name] for joint_name in unbind_bone_name])
 
         for node in model.scenes[0].nodes:
             if collada_file_path.endswith("Reaction.dae"):
@@ -86,6 +94,11 @@ class ColladaModel:
                     self.root_joint = Joint(node.id,
                                             self.inverse_transform_matrices[self.joints_order.get(node.id)])
                     self.root_joint.children.extend(self.__load_armature(node))
+                    self.rest_pose_joint_animation_matrix = {}
+                    self.__calculate_rest_pose_animation_matrix(self.root_joint, np.identity(4))
+                    self.joint_dict = {}
+                    self.__construct_joint_dict(self.root_joint, None)
+
                 for child in node.children:
                     if isinstance(child, ControllerNode):
                         self.__load_mesh_data(child)
@@ -93,8 +106,9 @@ class ColladaModel:
                 self.root_joint = Joint(node.children[0].id,
                                         self.inverse_transform_matrices[self.joints_order.get(node.children[0].id)])
                 self.root_joint.children.extend(self.__load_armature(node.children[0]))
-                # del self.inverse_transform_matrices
-
+                del self.inverse_transform_matrices
+                self.rest_pose_joint_animation_matrix = {}
+                self.__calculate_rest_pose_animation_matrix(self.root_joint, np.identity(4))
                 if not collada_file_path.endswith("human.dae"):
                     self.__load_mesh_data(node.children[1].children[0])
                     self.__load_mesh_data(node.children[2].children[0])
@@ -110,11 +124,113 @@ class ColladaModel:
         self.render_static_matrices = [np.identity(4) for _ in range(len(self.joints_order))]
         # self.render_animation_matrices = [i for i in range(len(self.joints_order))]
 
-        self.__load_keyframes(model.animations, collada_file_path)
+        # self.__load_keyframes(model.animations, collada_file_path)
+        self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/1")
 
         self.doing_animation = False
         self.frame_start_time = None
         self.animation_keyframe_pointer = 0
+
+        # self.__set_joint_angle(self.root_joint.children[0], [1.57, 0.67, 0])
+        # self.smplx_poses = np.array([-0.013232104480266571, -0.2054843306541443, -0.05122341960668564, -0.19700564444065094, -0.025097915902733803, 0.06495499610900879, 0.11946099996566772, -0.03601017966866493, 0.10146261006593704, -0.000832775083836168, 0.09232071042060852, -0.026628149673342705, 0.34644532203674316, 0.02861165814101696, -0.018566878512501717, -0.159354105591774, 0.04026065766811371, -0.07092364877462387, -0.05641816556453705, 0.014636288397014141, 0.020786477252840996, -0.06835556030273438, 0.25145798921585083, 0.009306746535003185, 0.10040702670812607, 0.010644057765603065, 0.14624226093292236, 0.06015906482934952, 0.07845903933048248, 0.07417913526296616, -0.025629688054323196, 0.030130499973893166, -0.025519341230392456, 0.05201706290245056, 0.005465198308229446, 0.05324413254857063, 0.25757601857185364, 0.5102375745773315, -0.1355082392692566, 0.025052731856703758, 0.1398579627275467, 0.004772544372826815, 0.14772482216358185, -0.05554765835404396, 0.27120494842529297, -0.04341213032603264, 0.5872477293014526, -0.03574392944574356, 0.36285415291786194, -0.2700650990009308, -1.0233166217803955, 0.25014087557792664, 0.20533864200115204, 0.8836807012557983, 0.18478870391845703, -1.7285561561584473, -0.15410436689853668, 0.18165907263755798, 0.31051573157310486, 0.09037993848323822, -0.662392795085907, -0.24611853063106537, 0.42543184757232666, -0.14846445620059967, 0.16134457290172577, -0.09032043814659119, 0.048781100660562515, 0.0020039950031787157, 0.0038107242435216904, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.01805310882627964, 0.18681661784648895, -1.067522406578064, 0.38887760043144226, -0.07576794922351837, -1.2938296794891357, -0.2534017860889435, -0.22823816537857056, 0.062493160367012024, -0.4997025728225708, 0.055100638419389725, -1.6000711917877197, -0.08493291586637497, 0.11063466221094131, -0.9430750608444214, -0.011919503100216389, -0.12384437024593353, -0.5485368371009827, -0.5719927549362183, -0.7005698680877686, -0.9286771416664124, -0.9715783596038818, -0.1196148470044136, -0.9070805907249451, -0.3850429654121399, -0.2095586657524109, -0.705706000328064, -0.266874760389328, -0.41972097754478455, -1.5415629148483276, -0.6304079294204712, -0.2759303152561188, -1.0951869487762451, -0.29364481568336487, -0.02338808961212635, -0.6974433064460754, 0.9681151509284973, 0.500689685344696, -0.03594258800148964, -0.6188196539878845, -0.2210063934326172, 0.08410488069057465, 0.570131778717041, -0.11006329208612442, -0.16703303158283234, 0.125240758061409, -0.06388267129659653, 0.733893871307373, 0.2574699819087982, 0.12979720532894135, 0.908207356929779, -0.2708408534526825, 0.12398278713226318, -0.1524866670370102, -0.28568530082702637, 0.009124931879341602, 0.849337637424469, -0.11575823277235031, -0.12757940590381622, 0.7795430421829224, 0.028035325929522514, 0.1195296049118042, 0.18480762839317322, -0.3899335265159607, 0.37081822752952576, 0.43408724665641785, -0.4098811149597168, -0.025760484859347343, 0.5803067684173584, -0.26975882053375244, 0.06586438417434692, 0.15986722707748413, -0.17501528561115265, 0.22303248941898346, 0.8296855092048645, -0.3454570174217224, 0.07300589233636856, 0.6966943740844727, -0.1755705624818802, 0.10920323431491852, 0.2908267676830292, 1.2211940288543701, -0.6028814315795898, 0.3054938316345215, -0.5468103885650635, 0.04367611184716225, -0.4370841979980469, 0.5432970523834229, 0.24968038499355316, 0.4824322760105133])
+        # self.smplx_poses = self.smplx_poses.reshape(-1, 3)
+
+
+        # self.__load_pose_from_pkl("/home/hhm/smpl_model/smplx_poses/smplx_gt/trainset_3dpeople_adults_bfh/10004_w_Amaya_0_0.pkl")
+        #self.__set_joint_angle(self.joint_dict["mixamorig_LeftShoulder"], self.smplx_poses[14])
+        # self.rest_pose_joint_animation_matrix["mixamorig_LeftShoulder"] = self.__set_joint_angle("mixamorig_LeftShoulder", self.smplx_poses[13])
+        # self.rest_pose_joint_animation_matrix["mixamorig_LeftArm"] = self.__set_joint_angle("mixamorig_LeftArm",
+        #                                                                   self.smplx_poses[16])
+        #self.__set_joint_angle(self.joint_dict["mixamorig_LeftForeArm"], self.smplx_body_poses[0, 17])
+        # self.__set_joint_angle(self.root_joint.children[1].children[0], self.rest_pose_joint_animation_matrix[self.root_joint.id], [-45, 0, 0])
+        # self.__set_joint_angle(self.root_joint.children[2], [1.57, 0.67, 0])
+
+    def __load_pose_from_pkl(self, file_name):
+        import pickle
+        with open(file_name, 'rb') as f:
+            poses_dict= pickle.load(f)
+        pose_data = np.concatenate((poses_dict["global_orient"][0], poses_dict["body_pose"][0], poses_dict["jaw_pose"][0], poses_dict["leye_pose"][0], poses_dict["reye_pose"][0], poses_dict["left_hand_pose"][0], poses_dict["right_hand_pose"][0]))
+        pose_data = pose_data.reshape(-1, 3)
+        for index in range(len(pose_data)):
+            pose = pose_data[index]
+            smplx_joint_name = self.smplx_index2joint[index]
+            if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
+                mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
+                self.rest_pose_joint_animation_matrix[mixamo_joint_name] = self.__set_joint_angle(mixamo_joint_name, pose)
+
+    def __set_joint_angle(self, mixamo_joint_name, angle):
+        from scipy.spatial.transform import Rotation
+        matrix_ = Rotation.from_rotvec(angle).as_matrix()
+        smplx_joint_name = self.mixamo2smplx_joints_map[mixamo_joint_name]
+        smplx_index = self.smplx_joint2index[smplx_joint_name]
+
+        # calculate transformation matrix
+        # smpl_rot = np.array(([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), dtype=np.float32)
+        smpl_rot = np.array(([[1, 0, 0], [0, 1, 0], [0, 0, 1]]), dtype=np.float32)
+        mixamo_rot = np.linalg.inv(self.joints_matrix_map[mixamo_joint_name][:3,:3])
+        rot = np.matmul(np.linalg.inv(mixamo_rot), smpl_rot)
+        matrix_ = np.matmul(np.matmul(rot, matrix_), np.transpose(rot))
+        # rot_matrix = Rotation.from_euler('xyz', euler, degrees=True).as_matrix()
+        trans_matrix = np.identity(4)
+        # trans_matrix[:3, :3] = np.linalg.inv(rot_matrix)
+        trans_matrix[:3, :3] = matrix_
+        joint_animation_matrix = np.matmul(self.rest_pose_joint_animation_matrix[mixamo_joint_name], trans_matrix)
+        return joint_animation_matrix
+        # self.rest_pose_joint_animation_matrix[joint.id] = np.identity(4)
+
+    def __construct_joint_dict(self, joint:Joint, joint_parent:Joint):
+        self.joint_dict[joint.id] = joint
+        joint.parent = joint_parent
+        for child in joint.children:
+            self.__construct_joint_dict(child, joint)
+
+    def __calculate_rest_pose_animation_matrix(self, joint:Joint, parent_matrix):
+        animation_matrix =  np.matmul(np.linalg.inv(parent_matrix), np.linalg.inv(self.joints_matrix_map[joint.id]))
+        self.rest_pose_joint_animation_matrix[joint.id] = animation_matrix
+        parent_matrix = np.matmul(parent_matrix, animation_matrix)
+        for child in joint.children:
+            self.__calculate_rest_pose_animation_matrix(child, parent_matrix)
+
+    def __load_keyframes_from_smplx(self, directory):
+        self.keyframes = []
+        import re
+        import smplx
+        import pickle
+        import torch
+        file_list = os.listdir(directory)
+        file_list = sorted(file_list, key=lambda f: int(re.search(r"toy_(\d+)\.pkl", f).group(1)))
+        frame_number = len(file_list)
+
+        import json
+        with open("SMPL-X skeleton.json", "r") as f:
+            smplx_index2joint = json.load(f)
+            self.smplx_index2joint = {int(key): value for key, value in smplx_index2joint.items()}
+            self.smplx_joint2index = {value: key for key, value in self.smplx_index2joint.items()}
+        with open("smplx2mixamo.json", "r") as f:
+            mixamo2smplx_joints_map = json.load(f)
+            self.smplx2mixamo_joints_map = {value: key for key, value in mixamo2smplx_joints_map.items()}
+            self.mixamo2smplx_joints_map = mixamo2smplx_joints_map
+
+        # cpnstant number
+        frame_rate = 1/10
+        for i, file_name in enumerate(file_list):
+            time = frame_rate * i
+            joint_dict = {}
+            import pickle
+            with open(os.path.join(directory, file_name), 'rb') as f:
+                poses_dict = pickle.load(f)
+            pose_data = np.concatenate((poses_dict["global_orient"], poses_dict["body_pose"],
+                                        poses_dict["jaw_pose"], [0, 0, 0],
+                                        [0, 0, 0], poses_dict["left_hand_pose"],
+                                        poses_dict["right_hand_pose"]))
+            pose_data = pose_data.reshape(-1, 3)
+            for index in range(len(pose_data)):
+                pose = pose_data[index]
+                smplx_joint_name = self.smplx_index2joint[index]
+                if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
+                    mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
+                    joint_dict[mixamo_joint_name] = self.__set_joint_angle(mixamo_joint_name, pose)
+            self.keyframes.append(KeyFrame(time, joint_dict))
 
     def __load_keyframes(self, animation_node, collada_file_path):
         self.keyframes = []
@@ -137,6 +253,7 @@ class ColladaModel:
                     id = animation.id.split("-")[0]
                     data = animation.sourceById.get(id + "-Matrix-animation-output-transform").data
                     joint_dict[id] = data[index * 16:(index + 1) * 16].reshape((4, 4))
+                    # joint_dict[id][:3, 3] = np.zeros((1, 3))
                 self.keyframes.append(KeyFrame(time, joint_dict))
             # time = 0.0
             # joint_dict = dict()
@@ -146,7 +263,6 @@ class ColladaModel:
             # self.keyframes.append(KeyFrame(time, joint_dict))
             # self.keyframes.append(KeyFrame(time+0.2, joint_dict))
             # self.keyframes.append(KeyFrame(time +0.4, joint_dict))
-            dawe = 0
 
 
     def __load_armature(self, node):
@@ -157,10 +273,13 @@ class ColladaModel:
                     joint = Joint(child.id, self.inverse_transform_matrices[self.joints_order.get(child.id)])
                     joint.children.extend(self.__load_armature(child))
                     children.append(joint)
+                else:
+                    print("What the hell")
         return children
 
     def __load_mesh_data(self, node):
         weights_data = np.squeeze(node.controller.weights.data)
+        weights_joint = np.squeeze(node.controller.weight_joints.data, axis=1)
         for index, mesh_data in enumerate(node.controller.geometry.primitives):
             vertex = []
             self.ntriangles.append(len(mesh_data))
@@ -181,7 +300,11 @@ class ColladaModel:
                     j_index_ = []
                     w_index = []
                     for vertex_index in list(mesh_data.vertex_index[mesh_data.polystarts[i]:mesh_data.polyends[i]]):
-                        j_index_.append(node.controller.joint_index[vertex_index])
+                        joint_name_array = list(weights_joint[node.controller.joint_index[vertex_index]])
+                        joint_index = np.array([self.joints_order[joint_name] for joint_name in joint_name_array])
+                        # joint_index = joint_index[~np.isin(joint_index, self.unbind_bone_index)]
+                        old_joint_index = node.controller.joint_index[vertex_index]
+                        j_index_.append(joint_index)
                         w_index.append(node.controller.weight_index[vertex_index])
 
                     w_ = [weights_data[index] for index in w_index]
@@ -205,15 +328,15 @@ class ColladaModel:
                 j_index = []
                 w = []
                 for j in range(len(j_index_)):
-                    if j_index_[j].size < 6:
+                    if j_index_[j].size < 9:
                         j_index.append(
-                            np.pad(j_index_[j], (0, 6 - j_index_[j].size), 'constant', constant_values=(0, 0))[:6])
+                            np.pad(j_index_[j], (0, 9 - j_index_[j].size), 'constant', constant_values=(0, 0))[:9])
                         w.append(
-                            np.pad(w_[j], (0, 6 - j_index_[j].size), 'constant', constant_values=(0, 0))[:6])
+                            np.pad(w_[j]/np.sum(w_[j][:9]), (0, 9 - j_index_[j].size), 'constant', constant_values=(0, 0))[:9])
                     else:
-                        j_index.append(j_index_[j][:6])
+                        j_index.append(j_index_[j][:9])
 
-                        w.append(w_[j][:6] / np.sum(w_[j][:6]))
+                        w.append(w_[j][:9] / np.sum(w_[j][:9]))
 
                 if not texture_type:
                     vertex.append(np.concatenate((v, n, j_index, w), axis=1))
@@ -238,7 +361,7 @@ class ColladaModel:
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, points, GL_STATIC_DRAW)
 
-        step = 20 if texture_type == "sampler" else 21 if texture_type == "v_color" else 18
+        step = 26 if texture_type == "sampler" else 27 if texture_type == "v_color" else 24
 
         glVertexAttribPointer(0, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(0 * sizeof(c_float)))
         glEnableVertexAttribArray(0)
@@ -248,19 +371,23 @@ class ColladaModel:
 
         glVertexAttribPointer(2, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(6 * sizeof(c_float)))
         glVertexAttribPointer(3, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(9 * sizeof(c_float)))
+        glVertexAttribPointer(4, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(12 * sizeof(c_float)))
         glEnableVertexAttribArray(2)
         glEnableVertexAttribArray(3)
-
-        glVertexAttribPointer(4, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(12 * sizeof(c_float)))
-        glVertexAttribPointer(5, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(15 * sizeof(c_float)))
         glEnableVertexAttribArray(4)
+
+        glVertexAttribPointer(5, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(15 * sizeof(c_float)))
+        glVertexAttribPointer(6, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(18 * sizeof(c_float)))
+        glVertexAttribPointer(7, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(21 * sizeof(c_float)))
         glEnableVertexAttribArray(5)
+        glEnableVertexAttribArray(6)
+        glEnableVertexAttribArray(7)
 
         if texture_type:
-            glVertexAttribPointer(6, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
-                                  c_void_p((18 if texture_type == "sampler" else 19) * sizeof(c_float)))
+            glVertexAttribPointer(8, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
+                                  c_void_p(24 * sizeof(c_float)))
 
-        glEnableVertexAttribArray(6)
+        glEnableVertexAttribArray(8)
 
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)
@@ -322,11 +449,19 @@ class ColladaModel:
 
         # interpolating; pre_frame, next_frame, frame_progress
         self.interpolation_joint = dict()
+        # from scipy.spatial.transform import Rotation
+        # for key, value in self.keyframes[1].joint_transform.items():
+        #     i_translation = np.identity(4)
+        #     i_translation[:3,:3] = Rotation.from_quat(value[1][[1, 2, 3, 0]]).as_matrix()
+        #     self.interpolation_joint[key] = np.matmul(value[0], i_translation)
         for key, value in pre_frame.joint_transform.items():
             t_m = self.interpolating_translation(value[0], next_frame.joint_transform.get(key)[0], frame_progress)
             r_m = self.interpolating_rotation(value[1], next_frame.joint_transform.get(key)[1], frame_progress)
             matrix = np.matmul(t_m, r_m)
             self.interpolation_joint[key] = matrix
+            # self.interpolation_joint[key] = np.matmul(self.rest_pose_joint_animation_matrix[key], matrix)
+            # self.interpolation_joint[key] = self.rest_pose_joint_animation_matrix[key]
+            # self.interpolation_joint[key] = np.matmul(matrix, self.rest_pose_joint_animation_matrix[key])
 
         # for key in self.interpolation_joint.keys():
         #     self.interpolation_joint[key] = np.linalg.inv(self.joints_matrix_map["_".join(key.split("_")[1:-2])])
@@ -349,14 +484,23 @@ class ColladaModel:
     def load_animation_matrices(self, joint, parent_matrix):
         if self.interpolation_joint.get(joint.id + "_pose_matrix") is None:
             if self.interpolation_joint.get(joint.id) is None:
-                p = np.matmul(parent_matrix, np.identity(4))
+                p = np.matmul(parent_matrix, self.rest_pose_joint_animation_matrix[joint.id])
+                # p = np.matmul(parent_matrix, np.identity(4))
             else:
                 p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id))
         else:
             p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id + "_pose_matrix"))
         for child in joint.children:
             self.load_animation_matrices(child, p)
-        self.render_static_matrices[self.joints_order.get(joint.id)] = np.matmul(p, joint.inverse_transform_matrix)
+        matrix_ret = np.matmul(p, joint.inverse_transform_matrix)
+        # if joint.id == "mixamorig_LeftLeg":
+        #     from scipy.spatial.transform import Rotation
+        #     rot_matrix = Rotation.from_euler('xyz', [40, 0, 0], degrees=True).as_matrix()
+        #     trans_matrix = np.identity(4)
+        #     trans_matrix[:3, :3] = rot_matrix
+        #     matrix_ret = np.matmul(trans_matrix, matrix_ret)
+
+        self.render_static_matrices[self.joints_order.get(joint.id)] = matrix_ret
 
 
 if __name__ == "__main__":
