@@ -14,7 +14,8 @@ SCR_WIDTH = 800
 SCR_HEIGHT = 800
 
 # camera = Camera3D(glm.vec3(0.0, 0.0, 100.0))
-camera = Camera3D(glm.vec3(0.0, 200.0, -200.0))
+camera = Camera3D(glm.vec3(0.0, 100.0, -100.0))
+# camera = Camera3D(glm.vec3(0.0, 1.5, 1.5))
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -84,7 +85,9 @@ def init():
 
     global human_model
 
-    human_model = ColladaModel("resources/Reaction/Reaction.dae")
+    human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae")
+    # human_model = ColladaModel("resources/ramy_changed/ramy.dae")
+    # human_model = ColladaModel("resources/Reaction/Reaction.dae")
     # human_model = ColladaModel("resources/human.dae")
     glEnable(GL_DEPTH_TEST)
 

@@ -5,6 +5,7 @@ import collada
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 
+from scipy.spatial.transform import Rotation
 from ctypes import c_float, c_void_p, sizeof
 import numpy as np
 from collada.polylist import Polylist
@@ -84,13 +85,13 @@ class ColladaModel:
                         print("Oh, no!!!!!")
 
         self.joint_count = len(self.joints_order)
-        unbind_bone_name = ["mixamorig_LeftHandThumb4", "mixamorig_LeftHandIndex4", "mixamorig_LeftHandMiddle4", "mixamorig_LeftHandRing4", "mixamorig_LeftHandPinky4",
-                                 "mixamorig_RightHandThumb4", "mixamorig_RightHandIndex4", "mixamorig_RightHandMiddle4", "mixamorig_RightHandRing4", "mixamorig_RightHandPinky4"]
-        self.unbind_bone_index = np.array([self.joints_order[joint_name] for joint_name in unbind_bone_name])
+        # unbind_bone_name = ["mixamorig_LeftHandThumb4", "mixamorig_LeftHandIndex4", "mixamorig_LeftHandMiddle4", "mixamorig_LeftHandRing4", "mixamorig_LeftHandPinky4",
+        #                          "mixamorig_RightHandThumb4", "mixamorig_RightHandIndex4", "mixamorig_RightHandMiddle4", "mixamorig_RightHandRing4", "mixamorig_RightHandPinky4"]
+        # self.unbind_bone_index = np.array([self.joints_order[joint_name] for joint_name in unbind_bone_name])
 
         for node in model.scenes[0].nodes:
-            if collada_file_path.endswith("Reaction.dae"):
-                if node.id == "mixamorig_Hips":
+            if collada_file_path.endswith("Reaction.dae") or collada_file_path.endswith("nonPBR.dae"):
+                if node.id == "mixamorig_Hips" or node.id == "mixamorig8_Hips":
                     self.root_joint = Joint(node.id,
                                             self.inverse_transform_matrices[self.joints_order.get(node.id)])
                     self.root_joint.children.extend(self.__load_armature(node))
@@ -103,20 +104,24 @@ class ColladaModel:
                     if isinstance(child, ControllerNode):
                         self.__load_mesh_data(child)
             if node.id == 'Armature':
-                self.root_joint = Joint(node.children[0].id,
-                                        self.inverse_transform_matrices[self.joints_order.get(node.children[0].id)])
+                self.root_joint = Joint(node.children[0].id.replace("Armature_", "", 1),
+                                        self.inverse_transform_matrices[self.joints_order.get(node.children[0].id.replace("Armature_", "", 1))])
                 self.root_joint.children.extend(self.__load_armature(node.children[0]))
                 del self.inverse_transform_matrices
                 self.rest_pose_joint_animation_matrix = {}
                 self.__calculate_rest_pose_animation_matrix(self.root_joint, np.identity(4))
+                self.joint_dict = {}
+                self.__construct_joint_dict(self.root_joint, None)
                 if not collada_file_path.endswith("human.dae"):
-                    self.__load_mesh_data(node.children[1].children[0])
-                    self.__load_mesh_data(node.children[2].children[0])
-                    self.__load_mesh_data(node.children[3].children[0])
-                    self.__load_mesh_data(node.children[4].children[0])
-                    self.__load_mesh_data(node.children[5].children[0])
-                    self.__load_mesh_data(node.children[6].children[0])
-                    self.__load_mesh_data(node.children[7].children[0])
+                    for i in range(1, len(node.children)):
+                        self.__load_mesh_data(node.children[i].children[0])
+                    # self.__load_mesh_data(node.children[2].children[0])
+                    # # self.__load_mesh_data(node.children[3].children[0])
+                    # self.__load_mesh_data(node.children[4].children[0])
+                    # self.__load_mesh_data(node.children[5].children[0])
+                    # self.__load_mesh_data(node.children[6].children[0])
+                    # self.__load_mesh_data(node.children[7].children[0])
+                    # self.__load_mesh_data(node.children[8].children[0])
 
             if node.id == "Cube":
                 self.__load_mesh_data(node.children[0])
@@ -124,8 +129,32 @@ class ColladaModel:
         self.render_static_matrices = [np.identity(4) for _ in range(len(self.joints_order))]
         # self.render_animation_matrices = [i for i in range(len(self.joints_order))]
 
+        import json
+        with open("SMPL-X skeleton.json", "r") as f:
+            smplx_index2joint = json.load(f)
+            self.smplx_index2joint = {int(key): value for key, value in smplx_index2joint.items()}
+            self.smplx_joint2index = {value: key for key, value in self.smplx_index2joint.items()}
+        with open("smplx2mixamo.json", "r") as f:
+        # with open("smplx2sk.json", "r") as f:
+            mixamo2smplx_joints_map = json.load(f)
+            self.smplx2mixamo_joints_map = {value: key for key, value in mixamo2smplx_joints_map.items()}
+            self.mixamo2smplx_joints_map = mixamo2smplx_joints_map
+        with open("smplx_finger_transform.json", "r") as f:
+            self.smplx_finger_euler = json.load(f)
+            key_lists = list(self.smplx_finger_euler.keys())
+            self.smplx_finger_rot_dict = {}
+            smpl_rot = np.linalg.inv(self.root_joint.inverse_transform_matrix[:3, :3])
+            for i, key in enumerate(key_lists):
+                rot_matrix = Rotation.from_euler("xyz", self.smplx_finger_euler[key], degrees=True).as_matrix()
+                if i%3 == 0:
+                    self.smplx_finger_rot_dict[key] = np.matmul(smpl_rot, rot_matrix)
+                else:
+                    parent_key = key_lists[i-1]
+                    self.smplx_finger_rot_dict[key] = np.matmul(self.smplx_finger_rot_dict[parent_key], rot_matrix)
+        self.keyframes = []
+
         # self.__load_keyframes(model.animations, collada_file_path)
-        self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/1")
+        self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/2")
 
         self.doing_animation = False
         self.frame_start_time = None
@@ -137,7 +166,8 @@ class ColladaModel:
 
 
         # self.__load_pose_from_pkl("/home/hhm/smpl_model/smplx_poses/smplx_gt/trainset_3dpeople_adults_bfh/10004_w_Amaya_0_0.pkl")
-        #self.__set_joint_angle(self.joint_dict["mixamorig_LeftShoulder"], self.smplx_poses[14])
+        # self.__set_joint_angle("mixamorig_LeftForeArm", [30, 0, 0])
+        # self.__set_joint_angle("mixamorig_LeftArm", [45, 0, 0])
         # self.rest_pose_joint_animation_matrix["mixamorig_LeftShoulder"] = self.__set_joint_angle("mixamorig_LeftShoulder", self.smplx_poses[13])
         # self.rest_pose_joint_animation_matrix["mixamorig_LeftArm"] = self.__set_joint_angle("mixamorig_LeftArm",
         #                                                                   self.smplx_poses[16])
@@ -156,20 +186,39 @@ class ColladaModel:
             smplx_joint_name = self.smplx_index2joint[index]
             if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
                 mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
-                self.rest_pose_joint_animation_matrix[mixamo_joint_name] = self.__set_joint_angle(mixamo_joint_name, pose)
+                angle = Rotation.from_rotvec(pose).as_matrix()
+                self.__set_joint_angle(mixamo_joint_name, angle)
+                # self.rest_pose_joint_animation_matrix[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
 
     def __set_joint_angle(self, mixamo_joint_name, angle):
         from scipy.spatial.transform import Rotation
+        rot_matrix_ = Rotation.from_euler("xyz", angle, degrees=True).as_matrix()
+        M_joint2world = np.linalg.inv(self.joints_matrix_map[mixamo_joint_name])
+        M_rotation_joint2world = np.identity(4)
+        M_rotation_joint2world[:3, :3] = M_joint2world[:3, :3]
+        M_translation_joint2world = np.identity(4)
+        M_translation_joint2world[:3, 3] = M_joint2world[:3, 3]
+        joint_animation_matrix = self.rest_pose_joint_animation_matrix[mixamo_joint_name]
+        joint_animation_matrix[:3,:3] = np.matmul(self.rest_pose_joint_animation_matrix[mixamo_joint_name][:3,:3], rot_matrix_)
+        self.rest_pose_joint_animation_matrix[mixamo_joint_name] = joint_animation_matrix
+
+    def __extract_joint_angle_from_smplx_pose(self, mixamo_joint_name, angle):
         matrix_ = Rotation.from_rotvec(angle).as_matrix()
         smplx_joint_name = self.mixamo2smplx_joints_map[mixamo_joint_name]
         smplx_index = self.smplx_joint2index[smplx_joint_name]
 
         # calculate transformation matrix
-        # smpl_rot = np.array(([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), dtype=np.float32)
-        smpl_rot = np.array(([[1, 0, 0], [0, 1, 0], [0, 0, 1]]), dtype=np.float32)
+        smpl_rot = np.linalg.inv(self.root_joint.inverse_transform_matrix[:3,:3])
+        smplx_initial_rot_matrix = np.identity(3)
+        if smplx_joint_name in self.smplx_finger_rot_dict:
+            # smpl_rot = self.smplx_finger_rot_dict[smplx_joint_name]
+            smplx_euler = self.smplx_finger_euler[smplx_joint_name]
+            smplx_initial_rot_matrix = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
+
         mixamo_rot = np.linalg.inv(self.joints_matrix_map[mixamo_joint_name][:3,:3])
-        rot = np.matmul(np.linalg.inv(mixamo_rot), smpl_rot)
-        matrix_ = np.matmul(np.matmul(rot, matrix_), np.transpose(rot))
+        smpl2mixamo_rot = np.matmul(np.linalg.inv(mixamo_rot), smpl_rot)
+        matrix_ = np.matmul(smplx_initial_rot_matrix, matrix_)
+        matrix_ = np.matmul(np.matmul(smpl2mixamo_rot, matrix_), np.linalg.inv(smpl2mixamo_rot))
         # rot_matrix = Rotation.from_euler('xyz', euler, degrees=True).as_matrix()
         trans_matrix = np.identity(4)
         # trans_matrix[:3, :3] = np.linalg.inv(rot_matrix)
@@ -179,57 +228,58 @@ class ColladaModel:
         # self.rest_pose_joint_animation_matrix[joint.id] = np.identity(4)
 
     def __construct_joint_dict(self, joint:Joint, joint_parent:Joint):
-        self.joint_dict[joint.id] = joint
+        self.joint_dict[joint.id.replace("Armature_", "", 1)] = joint
         joint.parent = joint_parent
         for child in joint.children:
             self.__construct_joint_dict(child, joint)
 
     def __calculate_rest_pose_animation_matrix(self, joint:Joint, parent_matrix):
-        animation_matrix =  np.matmul(np.linalg.inv(parent_matrix), np.linalg.inv(self.joints_matrix_map[joint.id]))
-        self.rest_pose_joint_animation_matrix[joint.id] = animation_matrix
+        animation_matrix =  np.matmul(np.linalg.inv(parent_matrix), np.linalg.inv(self.joints_matrix_map[joint.id.replace("Armature_", "", 1)]))
+        self.rest_pose_joint_animation_matrix[joint.id.replace("Armature_", "", 1)] = animation_matrix
         parent_matrix = np.matmul(parent_matrix, animation_matrix)
         for child in joint.children:
             self.__calculate_rest_pose_animation_matrix(child, parent_matrix)
 
     def __load_keyframes_from_smplx(self, directory):
-        self.keyframes = []
         import re
         import smplx
         import pickle
         import torch
         file_list = os.listdir(directory)
-        file_list = sorted(file_list, key=lambda f: int(re.search(r"toy_(\d+)\.pkl", f).group(1)))
+        # file_list = sorted(file_list, key=lambda f: int(re.search(r"toy_(\d+)\.pkl", f).group(1)))
+        file_list = sorted(file_list, key=lambda f: int(re.search(r"\S+_(\d+)_3D\.pkl$", f).group(1)))
         frame_number = len(file_list)
 
-        import json
-        with open("SMPL-X skeleton.json", "r") as f:
-            smplx_index2joint = json.load(f)
-            self.smplx_index2joint = {int(key): value for key, value in smplx_index2joint.items()}
-            self.smplx_joint2index = {value: key for key, value in self.smplx_index2joint.items()}
-        with open("smplx2mixamo.json", "r") as f:
-            mixamo2smplx_joints_map = json.load(f)
-            self.smplx2mixamo_joints_map = {value: key for key, value in mixamo2smplx_joints_map.items()}
-            self.mixamo2smplx_joints_map = mixamo2smplx_joints_map
-
         # cpnstant number
-        frame_rate = 1/10
+        frame_rate = 1/15
         for i, file_name in enumerate(file_list):
             time = frame_rate * i
             joint_dict = {}
             import pickle
             with open(os.path.join(directory, file_name), 'rb') as f:
                 poses_dict = pickle.load(f)
-            pose_data = np.concatenate((poses_dict["global_orient"], poses_dict["body_pose"],
-                                        poses_dict["jaw_pose"], [0, 0, 0],
-                                        [0, 0, 0], poses_dict["left_hand_pose"],
-                                        poses_dict["right_hand_pose"]))
+            # pose_data = np.concatenate((poses_dict["global_orient"], poses_dict["body_pose"],
+            #                             poses_dict["jaw_pose"], [0, 0, 0],
+            #                             [0, 0, 0], poses_dict["left_hand_pose"],
+            #                             poses_dict["right_hand_pose"]))
+            pose_data = np.concatenate(([0, 0, 0], poses_dict["smplx_body_pose"],
+                                        poses_dict["smplx_jaw_pose"], [0, 0, 0],
+                                        [0, 0, 0], poses_dict["smplx_lhand_pose"],
+                                        poses_dict["smplx_rhand_pose"]))
             pose_data = pose_data.reshape(-1, 3)
             for index in range(len(pose_data)):
                 pose = pose_data[index]
                 smplx_joint_name = self.smplx_index2joint[index]
+                # if smplx_joint_name in ["left_index2", "right_index2", "left_middle2", "right_middle2", "left_pinky2", "right_pinky2", "left_ring2", "right_ring2", "left_thumb2", "right_thumb2"]:
+                #     mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
+                #     mixamo_joint_name1 = mixamo_joint_name[:-1] + "2"
+                #     mixamo_joint_name2 = mixamo_joint_name[:-1] + "3"
+                #     joint_dict[mixamo_joint_name1] = self.__set_joint_angle(mixamo_joint_name1, pose * 1 /3)
+                #     joint_dict[mixamo_joint_name2] = self.__set_joint_angle(mixamo_joint_name2, pose * 1 /3)
+                # elif self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
                 if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
                     mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
-                    joint_dict[mixamo_joint_name] = self.__set_joint_angle(mixamo_joint_name, pose)
+                    joint_dict[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
             self.keyframes.append(KeyFrame(time, joint_dict))
 
     def __load_keyframes(self, animation_node, collada_file_path):
@@ -269,8 +319,8 @@ class ColladaModel:
         children = []
         for child in node.children:
             if type(child) == collada.scene.Node:
-                if self.joints_order.get(child.id)!=None:
-                    joint = Joint(child.id, self.inverse_transform_matrices[self.joints_order.get(child.id)])
+                if self.joints_order.get(child.id.replace("Armature_", "", 1))!=None:
+                    joint = Joint(child.id, self.inverse_transform_matrices[self.joints_order.get(child.id.replace("Armature_", "", 1))])
                     joint.children.extend(self.__load_armature(child))
                     children.append(joint)
                 else:
@@ -315,9 +365,13 @@ class ColladaModel:
                         t = mesh_data.texcoordset[0][mesh_data.texcoord_indexset[0][i]]
                     elif texture_type == "v_color":
                         t = np.array(diffuse[:-1]).reshape([1, -1]).repeat([3], axis=0)
-                    j_index_ = [node.controller.joint_index[mesh_data.vertex_index[i, 0]],
-                                node.controller.joint_index[mesh_data.vertex_index[i, 1]],
-                                node.controller.joint_index[mesh_data.vertex_index[i, 2]]]
+                    joint_name_array = [weights_joint[node.controller.joint_index[mesh_data.vertex_index[i,j]]] for j in range(3)]
+                    j_index_ = []
+                    for j in range(3):
+                        j_index_.append(np.array([self.joints_order[joint_name] for joint_name in joint_name_array[j]]))
+                    # j_index_ = [node.controller.joint_index[mesh_data.vertex_index[i, 0]],
+                    #             node.controller.joint_index[mesh_data.vertex_index[i, 1]],
+                    #             node.controller.joint_index[mesh_data.vertex_index[i, 2]]]
 
                     w_index = [node.controller.weight_index[mesh_data.vertex_index[i, 0]],
                                node.controller.weight_index[mesh_data.vertex_index[i, 1]],
@@ -433,41 +487,34 @@ class ColladaModel:
         if not self.doing_animation:
             self.doing_animation = True
             self.frame_start_time = glutGet(GLUT_ELAPSED_TIME)
-        pre_frame, next_frame = self.keyframes[self.animation_keyframe_pointer:self.animation_keyframe_pointer + 2]
-        frame_duration_time = (next_frame.time - pre_frame.time) * 1000
-        current_frame_time = glutGet(GLUT_ELAPSED_TIME)
-        frame_progress = (current_frame_time - self.frame_start_time) / frame_duration_time
-        if frame_progress >= 1:
-            self.animation_keyframe_pointer += 1
-            if self.animation_keyframe_pointer == len(self.keyframes) - 1:
-                self.animation_keyframe_pointer = 0
-            self.frame_start_time = glutGet(GLUT_ELAPSED_TIME)
+        self.interpolation_joint = dict()
+        if len(self.keyframes)>0:
             pre_frame, next_frame = self.keyframes[self.animation_keyframe_pointer:self.animation_keyframe_pointer + 2]
             frame_duration_time = (next_frame.time - pre_frame.time) * 1000
             current_frame_time = glutGet(GLUT_ELAPSED_TIME)
             frame_progress = (current_frame_time - self.frame_start_time) / frame_duration_time
+            if frame_progress >= 1:
+                self.animation_keyframe_pointer += 1
+                if self.animation_keyframe_pointer == len(self.keyframes) - 1:
+                    self.animation_keyframe_pointer = 0
+                self.frame_start_time = glutGet(GLUT_ELAPSED_TIME)
+                pre_frame, next_frame = self.keyframes[self.animation_keyframe_pointer:self.animation_keyframe_pointer + 2]
+                frame_duration_time = (next_frame.time - pre_frame.time) * 1000
+                current_frame_time = glutGet(GLUT_ELAPSED_TIME)
+                frame_progress = (current_frame_time - self.frame_start_time) / frame_duration_time
 
-        # interpolating; pre_frame, next_frame, frame_progress
-        self.interpolation_joint = dict()
-        # from scipy.spatial.transform import Rotation
-        # for key, value in self.keyframes[1].joint_transform.items():
-        #     i_translation = np.identity(4)
-        #     i_translation[:3,:3] = Rotation.from_quat(value[1][[1, 2, 3, 0]]).as_matrix()
-        #     self.interpolation_joint[key] = np.matmul(value[0], i_translation)
-        for key, value in pre_frame.joint_transform.items():
-            t_m = self.interpolating_translation(value[0], next_frame.joint_transform.get(key)[0], frame_progress)
-            r_m = self.interpolating_rotation(value[1], next_frame.joint_transform.get(key)[1], frame_progress)
-            matrix = np.matmul(t_m, r_m)
-            self.interpolation_joint[key] = matrix
-            # self.interpolation_joint[key] = np.matmul(self.rest_pose_joint_animation_matrix[key], matrix)
-            # self.interpolation_joint[key] = self.rest_pose_joint_animation_matrix[key]
-            # self.interpolation_joint[key] = np.matmul(matrix, self.rest_pose_joint_animation_matrix[key])
+            # interpolating; pre_frame, next_frame, frame_progress
+            # from scipy.spatial.transform import Rotation
+            # for key, value in self.keyframes[100].joint_transform.items():
+            #     i_translation = np.identity(4)
+            #     i_translation[:3,:3] = Rotation.from_quat(value[1][[1, 2, 3, 0]]).as_matrix()
+            #     self.interpolation_joint[key] = np.matmul(value[0], i_translation)
+            for key, value in pre_frame.joint_transform.items():
+                t_m = self.interpolating_translation(value[0], next_frame.joint_transform.get(key)[0], frame_progress)
+                r_m = self.interpolating_rotation(value[1], next_frame.joint_transform.get(key)[1], frame_progress)
+                matrix = np.matmul(t_m, r_m)
+                self.interpolation_joint[key] = matrix
 
-        # for key in self.interpolation_joint.keys():
-        #     self.interpolation_joint[key] = np.linalg.inv(self.joints_matrix_map["_".join(key.split("_")[1:-2])])
-
-        # for i in range(len(self.joints_order)):
-        #     self.render_static_matrices[i] = self.inverse_transform_matrices[i]
         self.load_animation_matrices(self.root_joint, np.identity(4))
         self.render(shader_program)
 
@@ -483,11 +530,11 @@ class ColladaModel:
 
     def load_animation_matrices(self, joint, parent_matrix):
         if self.interpolation_joint.get(joint.id + "_pose_matrix") is None:
-            if self.interpolation_joint.get(joint.id) is None:
-                p = np.matmul(parent_matrix, self.rest_pose_joint_animation_matrix[joint.id])
+            if self.interpolation_joint.get(joint.id.replace("Armature_", "", 1)) is None:
+                p = np.matmul(parent_matrix, self.rest_pose_joint_animation_matrix[joint.id.replace("Armature_", "", 1)])
                 # p = np.matmul(parent_matrix, np.identity(4))
             else:
-                p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id))
+                p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id.replace("Armature_", "", 1)))
         else:
             p = np.matmul(parent_matrix, self.interpolation_joint.get(joint.id + "_pose_matrix"))
         for child in joint.children:
@@ -499,8 +546,7 @@ class ColladaModel:
         #     trans_matrix = np.identity(4)
         #     trans_matrix[:3, :3] = rot_matrix
         #     matrix_ret = np.matmul(trans_matrix, matrix_ret)
-
-        self.render_static_matrices[self.joints_order.get(joint.id)] = matrix_ret
+        self.render_static_matrices[self.joints_order.get(joint.id.replace("Armature_", "", 1))] = matrix_ret
 
 
 if __name__ == "__main__":
