@@ -113,7 +113,7 @@ class Mesh:
                     glActiveTexture(GL_TEXTURE0 + index)
                     glBindTexture(GL_TEXTURE_2D, t)
             else:
-                glUniform1i(glGetUniformLocation(shader_program.id, "texture1"), 0)
+                glUniform1i(glGetUniformLocation(shader_program.id, "DiffuseMap"), 0)
                 glActiveTexture(GL_TEXTURE0)
                 glBindTexture(GL_TEXTURE_2D, self.texture)
 
@@ -123,7 +123,7 @@ class Mesh:
             glDrawElements(draw_type, len(self.indices), GL_UNSIGNED_INT, self.indices)
             # glDrawArrays(draw_type, 0, int(len(self.vertices) / 6))
         else:
-            vertex_length = 5
+            vertex_length = 5 # VT
             if self.vertex_format == "VTN":
                 vertex_length = 8
             if self.vertex_format == "VN":

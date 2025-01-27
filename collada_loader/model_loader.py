@@ -10,9 +10,6 @@ from ctypes import c_float, c_void_p, sizeof
 import numpy as np
 from collada.polylist import Polylist
 from collada.scene import ControllerNode
-from ipywidgets import Controller
-from scipy.constants import degree, value
-from smplx.lbs import batch_rodrigues
 
 from .transformations import quaternion_from_matrix, quaternion_matrix, quaternion_slerp, rotation_matrix
 
@@ -48,6 +45,8 @@ class ColladaModel:
         self.vao = []
         self.ntriangles = []
         self.texture = []
+        self.normal = []
+        self.specular = []
         if not collada_file_path.endswith("human.dae"):
             self.inverse_transform_matrices = []
             self.joints_order = {}
@@ -116,7 +115,7 @@ class ColladaModel:
                     for i in range(1, len(node.children)):
                         self.__load_mesh_data(node.children[i].children[0])
                     # self.__load_mesh_data(node.children[2].children[0])
-                    # # self.__load_mesh_data(node.children[3].children[0])
+                    # self.__load_mesh_data(node.children[3].children[0])
                     # self.__load_mesh_data(node.children[4].children[0])
                     # self.__load_mesh_data(node.children[5].children[0])
                     # self.__load_mesh_data(node.children[6].children[0])
@@ -154,7 +153,8 @@ class ColladaModel:
         self.keyframes = []
 
         # self.__load_keyframes(model.animations, collada_file_path)
-        self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/2")
+        # self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/2")
+        self.__load_keyframes_from_dataset("pose_data/processed_quart_val.pkl", 2)
 
         self.doing_animation = False
         self.frame_start_time = None
@@ -211,9 +211,10 @@ class ColladaModel:
         smpl_rot = np.linalg.inv(self.root_joint.inverse_transform_matrix[:3,:3])
         smplx_initial_rot_matrix = np.identity(3)
         if smplx_joint_name in self.smplx_finger_rot_dict:
-            # smpl_rot = self.smplx_finger_rot_dict[smplx_joint_name]
-            smplx_euler = self.smplx_finger_euler[smplx_joint_name]
-            smplx_initial_rot_matrix = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
+            if "thumb" not in smplx_joint_name:
+                # smpl_rot = self.smplx_finger_rot_dict[smplx_joint_name]
+                smplx_euler = self.smplx_finger_euler[smplx_joint_name]
+                smplx_initial_rot_matrix = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
 
         mixamo_rot = np.linalg.inv(self.joints_matrix_map[mixamo_joint_name][:3,:3])
         smpl2mixamo_rot = np.matmul(np.linalg.inv(mixamo_rot), smpl_rot)
@@ -239,6 +240,27 @@ class ColladaModel:
         parent_matrix = np.matmul(parent_matrix, animation_matrix)
         for child in joint.children:
             self.__calculate_rest_pose_animation_matrix(child, parent_matrix)
+
+    def __load_keyframes_from_dataset(self, file, index, frame_rate = 1/30):
+        with open(file, 'rb') as f:
+            import pickle
+            pose_dict_list = pickle.load(f)[index]["poses"]
+
+        for i, pose_dict in enumerate(pose_dict_list):
+            time = frame_rate * i
+            joint_dict = {}
+            pose_data = np.concatenate(([0, 0, 0], pose_dict["smplx_body_pose"],
+                                        pose_dict["smplx_jaw_pose"], [0, 0, 0],
+                                        [0, 0, 0], pose_dict["smplx_lhand_pose"],
+                                        pose_dict["smplx_rhand_pose"]))
+            pose_data = pose_data.reshape(-1, 3)
+            for index in range(len(pose_data)):
+                pose = pose_data[index]
+                smplx_joint_name = self.smplx_index2joint[index]
+                if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
+                    mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
+                    joint_dict[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
+            self.keyframes.append(KeyFrame(time, joint_dict))
 
     def __load_keyframes_from_smplx(self, directory):
         import re
@@ -270,13 +292,6 @@ class ColladaModel:
             for index in range(len(pose_data)):
                 pose = pose_data[index]
                 smplx_joint_name = self.smplx_index2joint[index]
-                # if smplx_joint_name in ["left_index2", "right_index2", "left_middle2", "right_middle2", "left_pinky2", "right_pinky2", "left_ring2", "right_ring2", "left_thumb2", "right_thumb2"]:
-                #     mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
-                #     mixamo_joint_name1 = mixamo_joint_name[:-1] + "2"
-                #     mixamo_joint_name2 = mixamo_joint_name[:-1] + "3"
-                #     joint_dict[mixamo_joint_name1] = self.__set_joint_angle(mixamo_joint_name1, pose * 1 /3)
-                #     joint_dict[mixamo_joint_name2] = self.__set_joint_angle(mixamo_joint_name2, pose * 1 /3)
-                # elif self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
                 if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
                     mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
                     joint_dict[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
@@ -324,8 +339,41 @@ class ColladaModel:
                     joint.children.extend(self.__load_armature(child))
                     children.append(joint)
                 else:
-                    print("What the hell")
+                    print("Cannot find mapped skeleton")
         return children
+
+    def __calculate__trangent(self, v, t):
+        v0 = v[0]
+        v1 = v[1]
+        v2 = v[2]
+
+        uv0 = t[0]
+        uv1 = t[1]
+        uv2 = t[2]
+
+        # Compute edge vectors in object space
+        delta_pos1 = v1 - v0
+        delta_pos2 = v2 - v0
+
+        # Compute edge vectors in UV space
+        delta_uv1 = uv1 - uv0
+        delta_uv2 = uv2 - uv0
+
+        # Calculate determinant
+        det = delta_uv1[0] * delta_uv2[1] - delta_uv1[1] * delta_uv2[0]
+        if det == 0.0:
+            det = 1.0  # Avoid division by zero
+
+        inv_det = 1.0 / det
+
+        # Compute Tangent and Bitangent
+        tangent = inv_det * (delta_uv2[1] * delta_pos1 - delta_uv1[1] * delta_pos2)
+        bitangent = inv_det * (-delta_uv2[0] * delta_pos1 + delta_uv1[0] * delta_pos2)
+
+        # Normalize results
+        tangent = tangent / np.linalg.norm(tangent)
+        bitangent = bitangent / np.linalg.norm(bitangent)
+        return tangent, bitangent
 
     def __load_mesh_data(self, node):
         weights_data = np.squeeze(node.controller.weights.data)
@@ -336,6 +384,12 @@ class ColladaModel:
             try:
                 material = node.materials[index]
                 diffuse = material.target.effect.diffuse
+                specular = None
+                if type(material.target.effect.specular) is collada.material.Map:
+                    specular = material.target.effect.specular
+                normal = None
+                if type(material.target.effect.bumpmap) is collada.material.Map:
+                    normal = material.target.effect.bumpmap
                 texture_type = "v_color" if type(diffuse) == tuple else "sampler"
             except:
                 texture_type = None
@@ -345,6 +399,9 @@ class ColladaModel:
                     n = mesh_data.normal[mesh_data.normal_index[mesh_data.polystarts[i]:mesh_data.polyends[i]]]
                     if texture_type == "sampler":
                         t = mesh_data.texcoordset[0][mesh_data.texcoord_indexset[0][mesh_data.polystarts[i]:mesh_data.polyends[i]]]
+                        tangent, bitangent = self.__calculate__trangent(v, t)
+                        tangent_ = [tangent for vertex in v]
+                        bitangent_ = [bitangent for vertex in v]
                     elif texture_type == "v_color":
                         t = np.array(diffuse[:-1]).reshape([1, -1]).repeat([3], axis=0)
                     j_index_ = []
@@ -356,7 +413,6 @@ class ColladaModel:
                         old_joint_index = node.controller.joint_index[vertex_index]
                         j_index_.append(joint_index)
                         w_index.append(node.controller.weight_index[vertex_index])
-
                     w_ = [weights_data[index] for index in w_index]
                 else:
                     v = mesh_data.vertex[mesh_data.vertex_index[i]]
@@ -395,19 +451,25 @@ class ColladaModel:
                 if not texture_type:
                     vertex.append(np.concatenate((v, n, j_index, w), axis=1))
                 else:
-                    vertex.append(np.concatenate((v, n, j_index, w, t), axis=1))
+                    vertex.append(np.concatenate((v, n, j_index, w, tangent_, bitangent_,t), axis=1))
 
             self.__set_vao(np.row_stack(vertex), texture_type)
 
             if texture_type == "sampler":
                 self.texture.append(self.__set_texture(diffuse.sampler.surface.image))
+                if specular is not None:
+                    self.specular.append(self.__set_texture(specular.sampler.surface.image))
+                else:
+                    self.specular.append(-1)
+                if normal is not None:
+                    self.normal.append(self.__set_texture(normal.sampler.surface.image))
+                else:
+                    self.normal.append(-1)
             else:
                 self.texture.append(-1)
 
     def __set_vao(self, points, texture_type):
         points = np.squeeze(points).astype(np.float32)
-        pos = points[:, :3]
-        joint_index = points[:, 6:9]
         self.vao.append(glGenVertexArrays(1))
         vbo = glGenBuffers(1)
         glBindVertexArray(self.vao[-1])
@@ -415,7 +477,7 @@ class ColladaModel:
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, points, GL_STATIC_DRAW)
 
-        step = 26 if texture_type == "sampler" else 27 if texture_type == "v_color" else 24
+        step = 32 if texture_type == "sampler" else 33 if texture_type == "v_color" else 30
 
         glVertexAttribPointer(0, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(0 * sizeof(c_float)))
         glEnableVertexAttribArray(0)
@@ -437,11 +499,16 @@ class ColladaModel:
         glEnableVertexAttribArray(6)
         glEnableVertexAttribArray(7)
 
-        if texture_type:
-            glVertexAttribPointer(8, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
-                                  c_void_p(24 * sizeof(c_float)))
-
+        glVertexAttribPointer(8, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(24 * sizeof(c_float)))
         glEnableVertexAttribArray(8)
+        glVertexAttribPointer(9, 3, GL_FLOAT, False, step * sizeof(c_float), c_void_p(27 * sizeof(c_float)))
+        glEnableVertexAttribArray(9)
+
+        if texture_type:
+            glVertexAttribPointer(10, 2 if texture_type == "sampler" else 3, GL_FLOAT, False, step * sizeof(c_float),
+                                  c_void_p(30 * sizeof(c_float)))
+
+        glEnableVertexAttribArray(10)
 
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)
@@ -471,11 +538,23 @@ class ColladaModel:
         for index, m in enumerate(self.render_static_matrices):
             shader_program.set_matrix("jointTransforms[" + str(index) + "]", m, transpose=GL_TRUE)
 
+        count = 0
         for index, vao in enumerate(self.vao):
             if self.texture[index] != -1:
-                glUniform1i(glGetUniformLocation(shader_program.id, "texture1"), index)
-                glActiveTexture(GL_TEXTURE0 + index)
+                glUniform1i(glGetUniformLocation(shader_program.id, "diffuseMap"), count)
+                glActiveTexture(GL_TEXTURE0 + count)
                 glBindTexture(GL_TEXTURE_2D, self.texture[index])
+                count += 1
+            if self.normal[index] != -1:
+                glUniform1i(glGetUniformLocation(shader_program.id, "normalMap"), count)
+                glActiveTexture(GL_TEXTURE0 + count)
+                glBindTexture(GL_TEXTURE_2D, self.normal[index])
+                count += 1
+            if self.normal[index] != -1:
+                glUniform1i(glGetUniformLocation(shader_program.id, "specularMap"), count)
+                glActiveTexture(GL_TEXTURE0 + count)
+                glBindTexture(GL_TEXTURE_2D, self.specular[index])
+                count += 1
 
             glBindVertexArray(vao)
 
@@ -488,7 +567,8 @@ class ColladaModel:
             self.doing_animation = True
             self.frame_start_time = glutGet(GLUT_ELAPSED_TIME)
         self.interpolation_joint = dict()
-        if len(self.keyframes)>0:
+        # if len(self.keyframes)>0 and self.animation_keyframe_pointer<len(self.keyframes) - 2:
+        if len(self.keyframes) > 0:
             pre_frame, next_frame = self.keyframes[self.animation_keyframe_pointer:self.animation_keyframe_pointer + 2]
             frame_duration_time = (next_frame.time - pre_frame.time) * 1000
             current_frame_time = glutGet(GLUT_ELAPSED_TIME)
@@ -514,6 +594,14 @@ class ColladaModel:
                 r_m = self.interpolating_rotation(value[1], next_frame.joint_transform.get(key)[1], frame_progress)
                 matrix = np.matmul(t_m, r_m)
                 self.interpolation_joint[key] = matrix
+        # else:
+        #     pre_frame, next_frame = self.keyframes[self.animation_keyframe_pointer:self.animation_keyframe_pointer + 2]
+        #     frame_progress = 0
+        #     for key, value in pre_frame.joint_transform.items():
+        #         t_m = self.interpolating_translation(value[0], next_frame.joint_transform.get(key)[0], frame_progress)
+        #         r_m = self.interpolating_rotation(value[1], next_frame.joint_transform.get(key)[1], frame_progress)
+        #         matrix = np.matmul(t_m, r_m)
+        #         self.interpolation_joint[key] = matrix
 
         self.load_animation_matrices(self.root_joint, np.identity(4))
         self.render(shader_program)
