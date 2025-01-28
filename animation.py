@@ -2,6 +2,8 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
 import numpy as np
+from setuptools.dist import sequence
+
 from shader import ShaderProgram
 from model import Model, ModelFromExport
 import glm
@@ -9,6 +11,15 @@ import time
 from camera3D import Camera3D
 from keyboard import keys_down, keys_up
 from collada_loader.model_loader import ColladaModel
+import argparse
+
+parser = argparse.ArgumentParser()
+
+# Define expected arguments
+parser.add_argument("--sequence_index", type=int, help="sequence index", default=0)
+
+args = parser.parse_args()
+
 
 SCR_WIDTH = 800
 SCR_HEIGHT = 800
@@ -95,7 +106,7 @@ def init():
 
     global human_model
 
-    human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae")
+    human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae", args.sequence_index)
     # human_model = ColladaModel("resources/Louise/louise1.dae")
     # human_model = ColladaModel("resources/ramy_changed/ramy.dae")
     # human_model = ColladaModel("resources/Reaction/Reaction.dae")
@@ -144,7 +155,7 @@ def drawFunc():
     grid_color = glm.vec3(0.0, 0.2, 0.3)
     glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-    grid_model.draw(shader_program, draw_type=GL_LINES)
+    # grid_model.draw(shader_program, draw_type=GL_LINES)
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
     shader_program.un_use()
 

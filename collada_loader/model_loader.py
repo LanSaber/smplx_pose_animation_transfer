@@ -40,7 +40,7 @@ class KeyFrame:
 
 
 class ColladaModel:
-    def __init__(self, collada_file_path):
+    def __init__(self, collada_file_path, sequence_index = 0):
         model = Collada(collada_file_path)
         self.vao = []
         self.ntriangles = []
@@ -150,11 +150,13 @@ class ColladaModel:
                 else:
                     parent_key = key_lists[i-1]
                     self.smplx_finger_rot_dict[key] = np.matmul(self.smplx_finger_rot_dict[parent_key], rot_matrix)
+        with open("smpl_previous_angle.json", "r") as f:
+            self.registration_finger_euler = json.load(f)
         self.keyframes = []
 
         # self.__load_keyframes(model.animations, collada_file_path)
         # self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/2")
-        self.__load_keyframes_from_dataset("pose_data/processed_quart_val.pkl", 2)
+        self.__load_keyframes_from_dataset("pose_data/processed_quart_val.pkl", sequence_index)
 
         self.doing_animation = False
         self.frame_start_time = None
@@ -210,19 +212,25 @@ class ColladaModel:
         # calculate transformation matrix
         smpl_rot = np.linalg.inv(self.root_joint.inverse_transform_matrix[:3,:3])
         smplx_initial_rot_matrix = np.identity(3)
+        # 获取姿态参数为0时，smpl的hand相对flat姿态已经转过的角度
         if smplx_joint_name in self.smplx_finger_rot_dict:
-            if "thumb" not in smplx_joint_name:
-                # smpl_rot = self.smplx_finger_rot_dict[smplx_joint_name]
-                smplx_euler = self.smplx_finger_euler[smplx_joint_name]
-                smplx_initial_rot_matrix = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
+            # smpl_rot = self.smplx_finger_rot_dict[smplx_joint_name]
+            smplx_euler = self.smplx_finger_euler[smplx_joint_name]
+            smplx_initial_rot_matrix = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
 
         mixamo_rot = np.linalg.inv(self.joints_matrix_map[mixamo_joint_name][:3,:3])
         smpl2mixamo_rot = np.matmul(np.linalg.inv(mixamo_rot), smpl_rot)
         matrix_ = np.matmul(smplx_initial_rot_matrix, matrix_)
         matrix_ = np.matmul(np.matmul(smpl2mixamo_rot, matrix_), np.linalg.inv(smpl2mixamo_rot))
+        # 校准初始姿态需要的预旋转
+        if smplx_joint_name in self.registration_finger_euler:
+            previous_euler = self.registration_finger_euler[smplx_joint_name]
+            previous_Rotation_ = Rotation.from_euler("xyz", smplx_euler, degrees=True).as_matrix()
+            matrix_ = np.matmul(previous_Rotation_, matrix_)
         # rot_matrix = Rotation.from_euler('xyz', euler, degrees=True).as_matrix()
         trans_matrix = np.identity(4)
         # trans_matrix[:3, :3] = np.linalg.inv(rot_matrix)
+        # 当前joint需要进行的旋转
         trans_matrix[:3, :3] = matrix_
         joint_animation_matrix = np.matmul(self.rest_pose_joint_animation_matrix[mixamo_joint_name], trans_matrix)
         return joint_animation_matrix
@@ -241,7 +249,7 @@ class ColladaModel:
         for child in joint.children:
             self.__calculate_rest_pose_animation_matrix(child, parent_matrix)
 
-    def __load_keyframes_from_dataset(self, file, index, frame_rate = 1/30):
+    def __load_keyframes_from_dataset(self, file, index, frame_rate = 1/18):
         with open(file, 'rb') as f:
             import pickle
             pose_dict_list = pickle.load(f)[index]["poses"]
@@ -342,6 +350,7 @@ class ColladaModel:
                     print("Cannot find mapped skeleton")
         return children
 
+    # 法线贴图TBN矩阵
     def __calculate__trangent(self, v, t):
         v0 = v[0]
         v1 = v[1]

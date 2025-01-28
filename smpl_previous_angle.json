@@ -1,0 +1,25 @@
+{
+    "mixamorig8_LeftHandThumb1": [-10.0, 0.0, 0.0],
+    "mixamorig8_LeftHandThumb2": [5.0, 0.0, 0.0],
+
+    "mixamorig8_LeftHandIndex2": [-5.0, 0.0, 0.0],
+
+    "mixamorig8_LeftHandMiddle1": [0.0, 0.0, -5.0],
+    "mixamorig8_LeftHandMiddle2": [-5.0, 0.0, 0.0],
+
+    "mixamorig8_LeftHandRing1": [0.0, 0.0, -10.0],
+
+    "mixamorig8_LeftHandPinky1": [0.0, 0.0, -20.0],
+
+
+    "mixamorig8_RightHandThumb1": [-10.0, 0.0, 0.0],
+    "mixamorig8_RightHandThumb2": [5.0, 0.0, 0.0],
+
+    "mixamorig8_RightHandIndex2": [-5.0, 0.0, 0.0],
+
+    "mixamorig8_RightHandMiddle1": [0.0, 0.0, 5.0],
+    "mixamorig8_RightHandMiddle2": [-5.0, 0.0, 0.0],
+
+    "mixamorig8_RightHandRing1": [0.0, 0.0, 10.0],
+    "mixamorig8_RightHandPinky1": [0.0, 0.0, 20.0]
+}
