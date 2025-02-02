@@ -40,7 +40,7 @@ class KeyFrame:
 
 
 class ColladaModel:
-    def __init__(self, collada_file_path, sequence_index = 0):
+    def __init__(self, collada_file_path, sequence_index = -1):
         model = Collada(collada_file_path)
         self.vao = []
         self.ntriangles = []
@@ -156,7 +156,8 @@ class ColladaModel:
 
         # self.__load_keyframes(model.animations, collada_file_path)
         # self.__load_keyframes_from_smplx("/home/hhm/pose_process/data_vis/2")
-        self.__load_keyframes_from_dataset("pose_data/processed_quart_val.pkl", sequence_index)
+        if  sequence_index>=0:
+            self.__load_keyframes_from_dataset("pose_data/processed_quart_val.pkl", sequence_index)
 
         self.doing_animation = False
         self.frame_start_time = None
@@ -253,22 +254,7 @@ class ColladaModel:
         with open(file, 'rb') as f:
             import pickle
             pose_dict_list = pickle.load(f)[index]["poses"]
-
-        for i, pose_dict in enumerate(pose_dict_list):
-            time = frame_rate * i
-            joint_dict = {}
-            pose_data = np.concatenate(([0, 0, 0], pose_dict["smplx_body_pose"],
-                                        pose_dict["smplx_jaw_pose"], [0, 0, 0],
-                                        [0, 0, 0], pose_dict["smplx_lhand_pose"],
-                                        pose_dict["smplx_rhand_pose"]))
-            pose_data = pose_data.reshape(-1, 3)
-            for index in range(len(pose_data)):
-                pose = pose_data[index]
-                smplx_joint_name = self.smplx_index2joint[index]
-                if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
-                    mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
-                    joint_dict[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
-            self.keyframes.append(KeyFrame(time, joint_dict))
+        self.load_keyframes_from_dict(pose_dict_list, frame_rate)
 
     def __load_keyframes_from_smplx(self, directory):
         import re
@@ -571,6 +557,17 @@ class ColladaModel:
             if self.texture[index] != -1:
                 glBindTexture(GL_TEXTURE_2D, 0)
 
+
+    def play_animation(self, shader_program, frame_idx):
+        current_frame = self.keyframes[frame_idx]
+        self.interpolation_joint = dict()
+        for key, value in current_frame.joint_transform.items():
+            r_m = quaternion_matrix(value[1])
+            matrix = np.matmul(value[0], r_m)
+            self.interpolation_joint[key] = matrix
+        self.load_animation_matrices(self.root_joint, np.identity(4))
+        self.render(shader_program)
+
     def animation(self, shader_program, loop_animation=False):
         if not self.doing_animation:
             self.doing_animation = True
@@ -645,6 +642,22 @@ class ColladaModel:
         #     matrix_ret = np.matmul(trans_matrix, matrix_ret)
         self.render_static_matrices[self.joints_order.get(joint.id.replace("Armature_", "", 1))] = matrix_ret
 
+    def load_keyframes_from_dict(self, pose_dict_list, frame_rate = 1/18):
+        for i, pose_dict in enumerate(pose_dict_list):
+            time = frame_rate * i
+            joint_dict = {}
+            pose_data = np.concatenate(([0, 0, 0], pose_dict["smplx_body_pose"],
+                                        pose_dict["smplx_jaw_pose"], [0, 0, 0],
+                                        [0, 0, 0], pose_dict["smplx_lhand_pose"],
+                                        pose_dict["smplx_rhand_pose"]))
+            pose_data = pose_data.reshape(-1, 3)
+            for index in range(len(pose_data)):
+                pose = pose_data[index]
+                smplx_joint_name = self.smplx_index2joint[index]
+                if self.smplx2mixamo_joints_map.get(smplx_joint_name) is not None:
+                    mixamo_joint_name = self.smplx2mixamo_joints_map.get(smplx_joint_name)
+                    joint_dict[mixamo_joint_name] = self.__extract_joint_angle_from_smplx_pose(mixamo_joint_name, pose)
+            self.keyframes.append(KeyFrame(time, joint_dict))
 
 if __name__ == "__main__":
     # scene = ColladaModel("/home/shuai/human.dae")

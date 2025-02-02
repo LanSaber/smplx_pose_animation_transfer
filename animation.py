@@ -1,3 +1,5 @@
+import os.path
+
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
@@ -309,6 +311,140 @@ def main():
 
     glutMainLoop()
 
+def play_pose_parameters(pose_dict, output_dir_name = "file"):
+    human_model.keyframes.clear()
+    human_model.load_keyframes_from_dict(pose_dict)
+    for i in range(len(human_model.keyframes)):
+        __drawFunc(i, output_dir_name)
+
+def __drawFunc(frame_index = 0, output_dir = ""):
+    glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
+    glClearDepth(1.0)
+    glPointSize(5)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+    current_frame = glutGet(GLUT_ELAPSED_TIME)
+
+    # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+
+    projection = glm.perspective(glm.radians(60.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 500)
+    #projection = glm.ortho(-10.0, 10.0, -10.0, 10.0, 0.1, 200.0)
+    view = camera.get_view_matrix()
+
+    # Extract the rotation matrix (upper-left 3x3)
+    R = glm.mat3(view)
+
+    # Extract the translation vector (last column)
+    T = glm.vec3(view[3])
+
+    # Calculate the camera position in world space
+    viewPos =  glm.vec3(-glm.transpose(R) * T)
+
+
+    shader_program.use()
+    shader_program.set_matrix("projection", glm.value_ptr(projection))
+    shader_program.set_matrix("view", glm.value_ptr(view))
+
+    m = glm.mat4(1.0)
+    m = glm.translate(m, grid_position[2])
+    m = glm.rotate(m, glm.radians(90), grid_position[1][1])
+    m = glm.scale(m, glm.vec3(5))
+    shader_program.set_matrix("model", glm.value_ptr(m))
+    floor_color = glm.vec3(1.0, 1.0, 1.0)
+    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(floor_color))
+    floor_model.draw(shader_program, draw_type=GL_TRIANGLES)
+    shader_program.un_use()
+    shader_program.use()
+    grid_color = glm.vec3(0.0, 0.2, 0.3)
+    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+    # grid_model.draw(shader_program, draw_type=GL_LINES)
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+    shader_program.un_use()
+
+    robot_program.use()
+    robot_program.set_matrix("projection", glm.value_ptr(projection))
+    # Pass view_position (vec3) to the shader instead of the entire matrix
+    glUniform3fv(glGetUniformLocation(robot_program.id, "viewPos"), 1, glm.value_ptr(viewPos))
+
+    # Lighting and camera position
+    light_pos = np.array([0, 150.0, 150.0], dtype=np.float32)
+
+    glUniform3fv(glGetUniformLocation(robot_program.id, "lightPos"), 1, light_pos)
+    glUniformMatrix4fv(glGetUniformLocation(robot_program.id, "view"), 1, GL_FALSE, glm.value_ptr(view))
+
+
+
+
+    m = glm.mat4(1.0)
+    # m = glm.rotate(m, glm.radians(-90), glm.vec3(1, 0, 0))
+    robot_program.set_matrix("model", glm.value_ptr(m))
+
+    # # Define the light properties
+    # light_direction = np.array([0.0, -1.0, -1.0], dtype=np.float32)  # Direction of light
+    # light_ambient = np.array([0.1, 0.1, 0.1], dtype=np.float32)  # Ambient intensity
+    # light_diffuse = np.array([0.8, 0.8, 0.8], dtype=np.float32)  # Diffuse intensity
+    # light_specular = np.array([1.0, 1.0, 1.0], dtype=np.float32)  # Specular intensity
+    #
+    # # Set uniforms
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightDirection"), 1, light_direction)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightAmbient"), 1, light_ambient)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightDiffuse"), 1, light_diffuse)
+    # glUniform3fv(glGetUniformLocation(shader_program, "lightSpecular"), 1, light_specular)
+
+    robot_program.un_use()
+
+    human_model.play_animation(robot_program, frame_index)
+
+    #
+    global last_frame
+    last_frame = glutGet(GLUT_ELAPSED_TIME)
+    global delta_time
+    delta_time = (last_frame - current_frame)
+    camera.process_keyboard(delta_time / 1000)
+    if delta_time < 16:
+        time.sleep((16 - delta_time) / 1000)
+    calculate_FPS()
+    global fps_count
+    if fps_count == 100:
+        fps_count = 0
+        print('fps: %.2f' % _fps)
+    fps_count += 1
+    glutSwapBuffers()
+
+    pixels = glReadPixels(0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE)
+    image = np.frombuffer(pixels, dtype=np.uint8).reshape(SCR_HEIGHT, SCR_WIDTH, 3)
+    image = np.flipud(image)
+    from PIL import Image
+    img = Image.fromarray(image)
+    if not os.path.exists(os.path.join("render_result", output_dir)):
+        os.mkdir(os.path.join("render_result", output_dir))
+    img.save(os.path.join("render_result", output_dir, str(frame_index) + ".png"))
+    glutPostRedisplay()
+
+    error = glGetError()
+    if error != GL_NO_ERROR:
+        print("OpenGL Error:", error)
+
+def __init_rend():
+    glutInit()
+    glutInitContextVersion(3, 3)
+    glutInitContextProfile(GLUT_CORE_PROFILE)
+    glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA | GLUT_DEPTH)
+    glutInitWindowSize(SCR_WIDTH, SCR_HEIGHT)
+    glutCreateWindow(b"demo")
+    # glutSetCursor(GLUT_CURSOR_NONE)
+    print(glGetString(GL_VERSION))
+
+    global prevTicks
+    prevTicks = glutGet(GLUT_ELAPSED_TIME)
+
+    init()
+
+    glutDisplayFunc(drawFunc)
+
+if __name__ != '__main__':
+    __init_rend()
 
 if __name__ == "__main__":
     main()
