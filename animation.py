@@ -4,7 +4,6 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
 import numpy as np
-from setuptools.dist import sequence
 
 from shader import ShaderProgram
 from model import Model, ModelFromExport
@@ -29,7 +28,8 @@ SCR_HEIGHT = 800
 # camera = Camera3D(glm.vec3(0.0, 0.0, 100.0))
 # camera = Camera3D(glm.vec3(0.0, 100.0, -100.0))
 # camera = Camera3D(glm.vec3(0.0, 1.5, 1.5))
-camera = Camera3D(glm.vec3(0.0, 150, 150))
+camera = Camera3D(glm.vec3(0.0, 100, 280))
+projection = glm.perspective(glm.radians(38.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -56,8 +56,18 @@ human_model = None  # type:ColladaModel
 grid_position = [
     glm.vec3(1.0, 1.0, 1.0),
     [glm.radians(90), glm.vec3(1.0, 0.0, 0.0)],
-    glm.vec3(0, 0.0, 0)
+    glm.vec3(0, 90.0, -10)
 ]
+
+# Quad vertices (full-screen)
+background_vertices = np.array([
+    -1, -1, 0.0,  0.0, 0.0,  # Bottom left
+     1, -1, 0.0,  1.0, 0.0,  # Bottom right
+     1,  1, 0.0,  1.0, 1.0,  # Top right
+    -1,  1, 0.0,  0.0, 1.0   # Top left
+], dtype=np.float32)
+
+indices = np.array([0, 1, 2, 2, 3, 0], dtype=np.uint32)
 
 
 def generate_grid_mesh(min, max, step=1.0):
@@ -82,7 +92,7 @@ def generate_grid_mesh(min, max, step=1.0):
     return np.array(vertices, dtype=np.float32), indices
 
 def generate_floor_mesh(min, max):
-    vertices = [min, min, 0, min, max, 0, max, max, 0, max, min, 0]
+    vertices = [min, min, 0, 0, 0, min, max, 0, 1, 0, max, max, 0, 1, 1, max, min, 0, 0, 1]
     indices = [0, 1, 2, 2, 3, 0]
     return np.array(vertices, dtype=np.float32), indices
 
@@ -90,7 +100,7 @@ def generate_floor_mesh(min, max):
 
 def init():
     grid_vertices, grid_mesh = generate_grid_mesh(-50, 60, step=10)
-    floor_vertices, floor_mesh = generate_floor_mesh(-50, 50)
+    floor_vertices, floor_mesh = generate_floor_mesh(-1, 1)
 
     global shader_program
     shader_program = ShaderProgram("resources/shaders/shader.vert", "resources/shaders/shader.frag")
@@ -104,7 +114,7 @@ def init():
     grid_model = Model([grid_vertices], indices=[grid_mesh], vertex_format="VT")
 
     global floor_model
-    floor_model = Model([floor_vertices], indices=[floor_mesh], vertex_format="V")
+    floor_model = Model([floor_vertices], indices=[floor_mesh], vertex_format="VT", texture_path=["background.png"])
 
     global human_model
 
@@ -117,16 +127,15 @@ def init():
 
 
 def drawFunc():
-    glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
+    # glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
     glClearDepth(1.0)
     glPointSize(5)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-
+    glDisable(GL_DEPTH_TEST)
     current_frame = glutGet(GLUT_ELAPSED_TIME)
 
     # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
 
-    projection = glm.perspective(glm.radians(60.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 500)
     #projection = glm.ortho(-10.0, 10.0, -10.0, 10.0, 0.1, 200.0)
     view = camera.get_view_matrix()
 
@@ -146,20 +155,19 @@ def drawFunc():
 
     m = glm.mat4(1.0)
     m = glm.translate(m, grid_position[2])
-    m = glm.rotate(m, glm.radians(90), grid_position[1][1])
+    m = glm.rotate(m, glm.radians(0), grid_position[1][1])
     m = glm.scale(m, glm.vec3(5))
     shader_program.set_matrix("model", glm.value_ptr(m))
-    floor_color = glm.vec3(1.0, 1.0, 1.0)
-    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(floor_color))
     floor_model.draw(shader_program, draw_type=GL_TRIANGLES)
+    # shader_program.un_use()
+    # shader_program.use()
+    # grid_color = glm.vec3(0.0, 0.2, 0.3)
+    # glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
+    # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+    # # grid_model.draw(shader_program, draw_type=GL_LINES)
+    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
     shader_program.un_use()
-    shader_program.use()
-    grid_color = glm.vec3(0.0, 0.2, 0.3)
-    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-    # grid_model.draw(shader_program, draw_type=GL_LINES)
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-    shader_program.un_use()
+    glEnable(GL_DEPTH_TEST)
 
     robot_program.use()
     robot_program.set_matrix("projection", glm.value_ptr(projection))
@@ -311,24 +319,46 @@ def main():
 
     glutMainLoop()
 
-def play_pose_parameters(pose_dict, output_dir_name = "file"):
+
+# Load image using pygame
+def load_texture_img(image_path):
+    from PIL import Image
+    # global background_image
+    background_image = Image.open(image_path)
+    background_image = background_image.transpose(Image.FLIP_TOP_BOTTOM)  # Flip because OpenGL's Y-axis is inverted
+    # global background_image_data
+    background_image_data = background_image.convert("RGB").tobytes()
+    global background_texture
+    background_texture = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, background_texture)
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, background_image.width, background_image.height, 0, GL_RGB, GL_UNSIGNED_BYTE, background_image_data)
+
+def play_pose_parameters(pose_dict, output_dir = "file"):
     human_model.keyframes.clear()
     human_model.load_keyframes_from_dict(pose_dict)
+    image_list = []
     for i in range(len(human_model.keyframes)):
-        __drawFunc(i, output_dir_name)
+        __drawFunc(i, image_list)
+    if not os.path.exists(os.path.join("render_result", output_dir)):
+        os.mkdir(os.path.join("render_result", output_dir))
+    for frame_idx, img in enumerate(image_list):
+        img.save(os.path.join("render_result", output_dir, str(frame_idx) + ".png"))
 
-def __drawFunc(frame_index = 0, output_dir = ""):
-    glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
+def __drawFunc(frame_index = 0, image_list = []):
+    # glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
     glClearDepth(1.0)
     glPointSize(5)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glDisable(GL_DEPTH_TEST)
 
     current_frame = glutGet(GLUT_ELAPSED_TIME)
 
     # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
 
-    projection = glm.perspective(glm.radians(60.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 500)
-    #projection = glm.ortho(-10.0, 10.0, -10.0, 10.0, 0.1, 200.0)
     view = camera.get_view_matrix()
 
     # Extract the rotation matrix (upper-left 3x3)
@@ -347,20 +377,26 @@ def __drawFunc(frame_index = 0, output_dir = ""):
 
     m = glm.mat4(1.0)
     m = glm.translate(m, grid_position[2])
-    m = glm.rotate(m, glm.radians(90), grid_position[1][1])
+    m = glm.rotate(m, glm.radians(0), grid_position[1][1])
     m = glm.scale(m, glm.vec3(5))
     shader_program.set_matrix("model", glm.value_ptr(m))
-    floor_color = glm.vec3(1.0, 1.0, 1.0)
-    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(floor_color))
+    # floor_color = glm.vec3(1.0, 1.0, 1.0)
+
+
+    # glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(floor_color))
+    # draw_background()
+    # background_texture = load_texture("background.png")
+
     floor_model.draw(shader_program, draw_type=GL_TRIANGLES)
-    shader_program.un_use()
-    shader_program.use()
-    grid_color = glm.vec3(0.0, 0.2, 0.3)
-    glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+    # shader_program.un_use()
+    # shader_program.use()
+    # grid_color = glm.vec3(0.0, 0.2, 0.3)
+    # glUniform3fv(glGetUniformLocation(shader_program.id, "fragColor"), 1, glm.value_ptr(grid_color))
+    # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
     # grid_model.draw(shader_program, draw_type=GL_LINES)
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
     shader_program.un_use()
+    glEnable(GL_DEPTH_TEST)
 
     robot_program.use()
     robot_program.set_matrix("projection", glm.value_ptr(projection))
@@ -417,9 +453,7 @@ def __drawFunc(frame_index = 0, output_dir = ""):
     image = np.flipud(image)
     from PIL import Image
     img = Image.fromarray(image)
-    if not os.path.exists(os.path.join("render_result", output_dir)):
-        os.mkdir(os.path.join("render_result", output_dir))
-    img.save(os.path.join("render_result", output_dir, str(frame_index) + ".png"))
+    image_list.append(img)
     glutPostRedisplay()
 
     error = glGetError()
