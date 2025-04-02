@@ -28,8 +28,8 @@ SCR_HEIGHT = 800
 # camera = Camera3D(glm.vec3(0.0, 0.0, 100.0))
 # camera = Camera3D(glm.vec3(0.0, 100.0, -100.0))
 # camera = Camera3D(glm.vec3(0.0, 1.5, 1.5))
-camera = Camera3D(glm.vec3(0.0, 100, 280))
-projection = glm.perspective(glm.radians(38.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+camera = Camera3D(glm.vec3(0.0, 90, 280))
+projection = glm.perspective(glm.radians(35.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -114,7 +114,7 @@ def init():
     grid_model = Model([grid_vertices], indices=[grid_mesh], vertex_format="VT")
 
     global floor_model
-    floor_model = Model([floor_vertices], indices=[floor_mesh], vertex_format="VT", texture_path=["background.png"])
+    floor_model = Model([floor_vertices], indices=[floor_mesh], vertex_format="VT", texture_path=["background.jpg"])
 
     global human_model
 
