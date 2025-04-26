@@ -8,6 +8,7 @@ import numpy as np
 import pyrender
 import trimesh
 import time
+import gzip
 
 class HandRender:
     def __init__(self, faces):
@@ -101,6 +102,7 @@ class HandRender:
 
 
 if __name__ == '__main__':
+
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     dtype = torch.float16
 
@@ -115,7 +117,8 @@ if __name__ == '__main__':
     hand_render = HandRender(mano_faces)
 
     # Open input video
-    input_video_path = "data/6e64c894-dfa6-4969-97d5-3252cc33adce.mp4"
+    # input_video_path = "data/_2FBDaOPYig_1-3-rgb_front.mp4"
+    input_video_path = "render_result/vid_ego/output_video.mp4"
     vid = cv2.VideoCapture(input_video_path)
     total_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
     hand_data_list = []
@@ -164,9 +167,12 @@ if __name__ == '__main__':
 
             if output["is_right"] == 0.0:
                 hand_data["smplx_lhand_pose"] = output["wilor_preds"]["hand_pose"].reshape((-1)).tolist()
+                hand_data["lhand_pred_vertices"] = output["wilor_preds"]["pred_vertices"].reshape((-1)).tolist()
+                hand_data["lwrist_global_orient"] = output["wilor_preds"]["global_orient"].reshape((-1)).tolist()
             else:
                 hand_data["smplx_rhand_pose"] = output["wilor_preds"]["hand_pose"].reshape((-1)).tolist()
-
+                hand_data["rhand_pred_vertices"] = output["wilor_preds"]["pred_vertices"].reshape((-1)).tolist()
+                hand_data["rwrist_global_orient"] = output["wilor_preds"]["global_orient"].reshape((-1)).tolist()
             # Render
             mask = depth > 0
             colors[mask] = color[mask]

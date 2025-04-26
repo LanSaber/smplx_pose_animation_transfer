@@ -25,11 +25,21 @@ args = parser.parse_args()
 SCR_WIDTH = 800
 SCR_HEIGHT = 800
 
+ego_centric = False
+
 # camera = Camera3D(glm.vec3(0.0, 0.0, 100.0))
 # camera = Camera3D(glm.vec3(0.0, 100.0, -100.0))
 # camera = Camera3D(glm.vec3(0.0, 1.5, 1.5))
-camera = Camera3D(glm.vec3(0.0, 90, 280))
-projection = glm.perspective(glm.radians(35.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+if not ego_centric:
+    camera = Camera3D(glm.vec3(0.0, 90, 280))
+    projection = glm.perspective(glm.radians(35.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+    # Lighting and camera position
+    light_pos = np.array([0, 100.0, 200.0], dtype=np.float32)
+else:
+    camera = Camera3D(glm.vec3(0.0, 160, 20), front=(0.0, 0.0, 1.0), yaw=90, pitch=-45)
+    projection = glm.perspective(glm.radians(120.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+    # Lighting and camera position
+    light_pos = np.array([0, 300.0, 0.0], dtype=np.float32)
 
 last_x = SCR_WIDTH / 2.0
 last_y = SCR_HEIGHT / 2.0
@@ -118,7 +128,8 @@ def init():
 
     global human_model
 
-    human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae", args.sequence_index)
+    # human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae", args.sequence_index)
+    human_model = ColladaModel("resources/woman/Humano_Rig_052-6525_01_T-LOD0.dae", args.sequence_index)
     # human_model = ColladaModel("resources/Louise/louise1.dae")
     # human_model = ColladaModel("resources/ramy_changed/ramy.dae")
     # human_model = ColladaModel("resources/Reaction/Reaction.dae")
@@ -174,8 +185,6 @@ def drawFunc():
     # Pass view_position (vec3) to the shader instead of the entire matrix
     glUniform3fv(glGetUniformLocation(robot_program.id, "viewPos"), 1, glm.value_ptr(viewPos))
 
-    # Lighting and camera position
-    light_pos = np.array([0, 150.0, 150.0], dtype=np.float32)
 
     glUniform3fv(glGetUniformLocation(robot_program.id, "lightPos"), 1, light_pos)
     glUniformMatrix4fv(glGetUniformLocation(robot_program.id, "view"), 1, GL_FALSE, glm.value_ptr(view))
@@ -215,7 +224,7 @@ def drawFunc():
     global fps_count
     if fps_count == 100:
         fps_count = 0
-        print('fps: %.2f' % _fps)
+        # print('fps: %.2f' % _fps)
     fps_count += 1
     glutSwapBuffers()
     glutPostRedisplay()
@@ -302,7 +311,7 @@ def main():
     glutInitWindowSize(SCR_WIDTH, SCR_HEIGHT)
     glutCreateWindow(b"demo")
     # glutSetCursor(GLUT_CURSOR_NONE)
-    print(glGetString(GL_VERSION))
+    # print(glGetString(GL_VERSION))
 
     global prevTicks
     prevTicks = glutGet(GLUT_ELAPSED_TIME)
@@ -347,6 +356,34 @@ def play_pose_parameters(pose_dict, output_dir = "file"):
         os.mkdir(os.path.join("render_result", output_dir))
     for frame_idx, img in enumerate(image_list):
         img.save(os.path.join("render_result", output_dir, str(frame_idx) + ".png"))
+
+
+def save_pose_into_videos(pose_dict, output_dir="file", file_name="output_video"):
+    human_model.keyframes.clear()
+    human_model.load_keyframes_from_dict(pose_dict)
+    image_list = []
+    for i in range(len(human_model.keyframes)):
+        __drawFunc(i, image_list)
+    if not os.path.exists(os.path.join("render_result", output_dir)):
+        os.mkdir(os.path.join("render_result", output_dir))
+    image_list = [np.array(img) for img in image_list]
+    import cv2
+    height, width, layers = image_list[0].shape
+    video_path_mp4 = os.path.join("render_result", output_dir, os.path.join(file_name+".mp4"))
+    # cv2.VideoWriter creates a video writer object.
+    # Parameters:
+    # video_path_mp4: The path where the video file will be saved.
+    # cv2.VideoWriter_fourcc(*'mp4v'): The codec used to compress the frames. 'mp4v' is a codec for .mp4 files.
+    # 15: The number of frames per second (fps).
+    # (width, height): The size of the video frames.
+    video_mp4 = cv2.VideoWriter(video_path_mp4, cv2.VideoWriter_fourcc(*'mp4v'), 30, (width, height))
+
+    for img in image_list:
+        video_mp4.write(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
+
+    video_mp4.release()
+
+
 
 def __drawFunc(frame_index = 0, image_list = []):
     # glClearColor(173.0/255, 216.0/255, 230.0/255, 0.0)
@@ -402,9 +439,6 @@ def __drawFunc(frame_index = 0, image_list = []):
     robot_program.set_matrix("projection", glm.value_ptr(projection))
     # Pass view_position (vec3) to the shader instead of the entire matrix
     glUniform3fv(glGetUniformLocation(robot_program.id, "viewPos"), 1, glm.value_ptr(viewPos))
-
-    # Lighting and camera position
-    light_pos = np.array([0, 150.0, 150.0], dtype=np.float32)
 
     glUniform3fv(glGetUniformLocation(robot_program.id, "lightPos"), 1, light_pos)
     glUniformMatrix4fv(glGetUniformLocation(robot_program.id, "view"), 1, GL_FALSE, glm.value_ptr(view))

@@ -1,0 +1,1 @@
+python regress.py --global 1 --video_nums 500

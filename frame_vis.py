@@ -1,6 +1,6 @@
 import cv2
 
-video_cap = cv2.VideoCapture("data/_2FBDaOPYig_1-3-rgb_front.mp4")
+video_cap = cv2.VideoCapture("visualization_videos/_2FBDaOPYig_1-3-rgb_front_hand_mesh_20250330_143248.mp4")
 dawe = video_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 dawdawee = video_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 for i in range(int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))):

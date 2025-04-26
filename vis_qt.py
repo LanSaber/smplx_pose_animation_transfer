@@ -18,7 +18,13 @@ import sys
 import cv2
 import numpy as np
 
+from scipy.spatial.transform import Rotation as R
+
 import pickle
+import pandas as pd
+mano_pickle = pd.read_pickle('data/mano/MANO_RIGHT.pkl')
+hands_mean_right = pd.read_pickle('data/mano/MANO_RIGHT.pkl')['hands_mean']
+hands_mean_left  = pd.read_pickle('data/mano/MANO_LEFT.pkl')['hands_mean']
 
 class Demo(QWidget):
     def __init__(self, index, show_keypoints = False, mesh_type="smplx"):
@@ -127,26 +133,74 @@ class Demo(QWidget):
             # self.joints = np.load("pose.npy")
             # self.points_item = gl.GLScatterPlotItem(pos=self.joints[0], color=pg.glColor(self.pointcolors))
         elif mesh_type == "mano":
-            mano_right_faces = create(
+            mano_right = create(
                 "data",
                 model_type='mano',
                 is_rhand=True,
                 use_pca=False
-            ).faces
-            mano_left_faces = create(
+            )
+            mano_right_faces = mano_right.faces
+            mano_left = create(
                 "data",
                 model_type='mano',
                 is_rhand=False,
                 use_pca=False
-            ).faces
+            )
+            mano_left_faces = mano_left.faces
             self.vertices = []
             with open(file_name, "rb") as f:
                 hand_poses = pickle.load(f)
             if hand_poses is not None:
                 for i in range(len(hand_poses)):
-                    self.vertices.append(hand_poses[i]["rhand_pred_vertices"])
+                    if hand_poses[i].get("smplx_rhand_pose") is not None:
+                        right_hand_poses = np.array(hand_poses[i]["smplx_rhand_pose"]) - hands_mean_right
+                        wrist_pose = torch.from_numpy(np.array(hand_poses[i]["rwrist_global_orient"]).reshape(-1, 3)).type(torch.FloatTensor)
+                        # wrist_pose = torch.zeros((1, 3))
+                        # Convert wrist_pose from axis-angle to rotation matrix
+                        wrist_pose_matrix = R.from_rotvec(wrist_pose, degrees=False).as_matrix()
+
+                        rotation_matrix_x = torch.tensor([
+                            [1, 0, 0],
+                            [0, 0, 1],
+                            [0, -1, 0]
+                        ], dtype=torch.float32)
+
+                        # Apply the rotation around the x-axis
+                        rotated_res = torch.matmul(rotation_matrix_x, torch.from_numpy(wrist_pose_matrix).float())
+                        wrist_pose = torch.from_numpy(R.from_matrix(rotated_res).as_rotvec(degrees=False)).type(torch.FloatTensor)
+
+
+                        right_hand_poses = torch.from_numpy(right_hand_poses.reshape(-1, 45)).type(torch.FloatTensor)
+                        betas = torch.from_numpy(np.zeros((right_hand_poses.shape[0], 10))).type(torch.FloatTensor)
+                        output = mano_right.forward(hand_pose=right_hand_poses, betas=betas, global_orient=wrist_pose)
+                        vertices = output["vertices"].detach().cpu().numpy()[0]
+                        self.vertices.append(vertices)
+                    # if hand_poses[i].get("smplx_lhand_pose") is not None:
+                    #     left_hand_poses = np.array(hand_poses[i]["smplx_lhand_pose"]) - hands_mean_right
+                    #     wrist_pose = torch.from_numpy(np.array(hand_poses[i]["lwrist_global_orient"]).reshape(-1, 3)).type(torch.FloatTensor)
+                    #     # wrist_pose = torch.zeros((1, 3))
+                    #
+                    #     wrist_pose_matrix = R.from_rotvec(wrist_pose, degrees=False).as_matrix()
+                    #
+                    #     rotation_matrix_x = torch.tensor([
+                    #         [1, 0, 0],
+                    #         [0, 0, 1],
+                    #         [0, -1, 0]
+                    #     ], dtype=torch.float32)
+                    #
+                    #     # Apply the rotation around the x-axis
+                    #     rotated_res = torch.matmul(rotation_matrix_x, torch.from_numpy(wrist_pose_matrix).float())
+                    #     wrist_pose = torch.from_numpy(R.from_matrix(rotated_res).as_rotvec(degrees=False)).type(torch.FloatTensor)
+                    #
+                    #     left_hand_poses = torch.from_numpy(left_hand_poses.reshape(-1, 45)).type(torch.FloatTensor)
+                    #     betas = torch.from_numpy(np.zeros((left_hand_poses.shape[0], 10))).type(torch.FloatTensor)
+                    #     output = mano_left.forward(hand_pose=left_hand_poses, betas=betas, global_orient=wrist_pose)
+                    #     vertices = output["vertices"].detach().cpu().numpy()[0]
+                    #     self.vertices.append(vertices)
+                    # self.vertices.append(np.array(hand_poses[i]["rhand_pred_vertices"]).reshape(-1, 3))
                 self.vertices = np.array(self.vertices)
-                self.faces = mano_right_faces
+                # self.faces = mano_right_faces
+                self.faces = mano_left_faces
 
         if mesh_type == "smplx":
             meshdata = gl.MeshData(vertexes=self.vertices[0], faces=self.faces, vertexColors=self.vertex_color_array)
@@ -166,10 +220,39 @@ class Demo(QWidget):
         self.timer.setInterval(150)
         self.timer.start()
 
+        # Add coordinate axes
+        # Create lines for x, y, z axes
+        axis_length = 1.0  # Length of axis lines
+        
+        # X-axis (red)
+        x_axis = np.array([[0, 0, 0], [axis_length, 0, 0]])
+        x_line = gl.GLLinePlotItem(pos=x_axis, color=(1, 0, 0, 1), width=5)
+        self.window.addItem(x_line)
+        
+        # Y-axis (green)
+        y_axis = np.array([[0, 0, 0], [0, axis_length, 0]])
+        y_line = gl.GLLinePlotItem(pos=y_axis, color=(0, 1, 0, 1), width=5)
+        self.window.addItem(y_line)
+        
+        # Z-axis (blue)
+        z_axis = np.array([[0, 0, 0], [0, 0, axis_length]])
+        z_line = gl.GLLinePlotItem(pos=z_axis, color=(0, 0, 1, 1), width=5)
+        self.window.addItem(z_line)
+        
+        # Add labels for axes
+        x_label = gl.GLTextItem(pos=[axis_length, 0, 0], text='X', color=(1, 0, 0, 1))
+        y_label = gl.GLTextItem(pos=[0, axis_length, 0], text='Y', color=(0, 1, 0, 1))
+        z_label = gl.GLTextItem(pos=[0, 0, axis_length], text='Z', color=(0, 0, 1, 1))
+        
+        self.window.addItem(x_label)
+        self.window.addItem(y_label)
+        self.window.addItem(z_label)
+
     def update_frame(self):
         self.frame_number += 1
         if self.frame_number >= self.N_frames:
             self.frame_number =0
+        self.frame_number = 0
         # self.points_item.setData(pos=self.joints[self.frame_number])
         if self.mesh_type == "smplx":
             self.mesh_item.setMeshData(vertexes=self.vertices[self.frame_number], faces=self.faces, vertexColors=self.vertex_color_array)
@@ -183,7 +266,8 @@ class Demo(QWidget):
 keypoints_file_name = os.path.join("..", "SLRT", "Spoken2Sign", "data", "phoenix-2014t-keypoints.pkl")
 if __name__ == '__main__':
     # file_name = os.path.join("data", "phoenix_000000_001500.pkl")
-    file_name = os.path.join("pose_data", "_2FBDaOPYig_1-3-rgb_front" + "_hand_refine.pkl")
+    # file_name = os.path.join("pose_data", "_2FBDaOPYig_1-3-rgb_front" + "_hand_refine.pkl")
+    file_name = os.path.join("pose_data", "output_video" + "_hand_refine.pkl")
     pose_file = "combined_pose.pkl"
     # file_name_list = os.listdir(dir)
     app = QApplication(sys.argv)
