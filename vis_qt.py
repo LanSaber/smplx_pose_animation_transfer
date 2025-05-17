@@ -89,14 +89,24 @@ class Demo(QWidget):
                 with open(keypoints_file_name, "rb") as f:
                     self.keypoints = pickle.load(f)[key_name]["keypoints"]
             # keypoints_list =
-            with open(pose_file, "rb") as f:
-                pose_list = pickle.load(f)
-            for pose in pose_list:
-                root_poses.append(pose['smplx_root_pose'])
-                smplx_betas.append([0]*10)
-                body_poses.append(pose["smplx_body_pose"])
-                lhand_poses.append(pose["smplx_lhand_pose"])
-                rhand_poses.append(pose["smplx_rhand_pose"])
+            # with open(pose_file, "rb") as f:
+            #     pose_list = pickle.load(f)
+            #
+            # for pose in pose_list:
+            #     root_poses.append(pose['smplx_root_pose'])
+            #     smplx_betas.append([0]*10)
+            #     body_poses.append(pose["smplx_body_pose"])
+            #     lhand_poses.append(pose["smplx_lhand_pose"])
+            #     rhand_poses.append(pose["smplx_rhand_pose"])
+
+            with open(pose_file, 'rb') as f:
+                pickle_data = pickle.load(f)
+                root_poses=pickle_data['smplx_root_pose']
+                smplx_betas=pickle_data["smplx_shape"]
+                body_poses=pickle_data["smplx_body_pose"]
+                lhand_poses=pickle_data["smplx_lhand_pose"]
+                rhand_poses= pickle_data["smplx_rhand_pose"]
+
             # for file_name in file_name_list:
             #     directory = os.path.join(dir, file_name)
             #     with open(directory, 'rb') as f:
@@ -108,7 +118,7 @@ class Demo(QWidget):
             #         rhand_poses.append(pickle_data["smplx_rhand_pose"])
 
 
-            batch_size = len(pose_list)
+            batch_size = len(root_poses)
 
             smplx_betas = np.array(smplx_betas)
             smplx_betas = torch.from_numpy(smplx_betas).float()
@@ -267,9 +277,10 @@ keypoints_file_name = os.path.join("..", "SLRT", "Spoken2Sign", "data", "phoenix
 if __name__ == '__main__':
     # file_name = os.path.join("data", "phoenix_000000_001500.pkl")
     # file_name = os.path.join("pose_data", "_2FBDaOPYig_1-3-rgb_front" + "_hand_refine.pkl")
-    file_name = os.path.join("pose_data", "output_video" + "_hand_refine.pkl")
+    # file_name = os.path.join("pose_data", "output_video" + "_hand_refine.pkl")
+    file_name = os.path.join("pose_data", "1.pkl")
     pose_file = "combined_pose.pkl"
     # file_name_list = os.listdir(dir)
     app = QApplication(sys.argv)
-    t = Demo(index=0,  show_keypoints = False, mesh_type="mano")
+    t = Demo(index=0,  show_keypoints = False, mesh_type="smplx")
     sys.exit(app.exec_())

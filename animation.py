@@ -31,13 +31,14 @@ ego_centric = False
 # camera = Camera3D(glm.vec3(0.0, 100.0, -100.0))
 # camera = Camera3D(glm.vec3(0.0, 1.5, 1.5))
 if not ego_centric:
-    camera = Camera3D(glm.vec3(0.0, 90, 280))
-    projection = glm.perspective(glm.radians(35.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+    camera = Camera3D(glm.vec3(0.0, 130, 280))
+    projection = glm.perspective(glm.radians(30.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
     # Lighting and camera position
     light_pos = np.array([0, 100.0, 200.0], dtype=np.float32)
 else:
     camera = Camera3D(glm.vec3(0.0, 160, 20), front=(0.0, 0.0, 1.0), yaw=90, pitch=-45)
     projection = glm.perspective(glm.radians(120.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
+    # projection = glm.perspective(glm.radians(60.0), SCR_WIDTH * 1.0 / SCR_HEIGHT, 0.1, 1000)
     # Lighting and camera position
     light_pos = np.array([0, 300.0, 0.0], dtype=np.float32)
 
@@ -128,8 +129,8 @@ def init():
 
     global human_model
 
-    # human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae", args.sequence_index)
-    human_model = ColladaModel("resources/woman/Humano_Rig_052-6525_01_T-LOD0.dae", args.sequence_index)
+    human_model = ColladaModel("resources/Ch07_nonPBR/Ch07_nonPBR.dae", args.sequence_index)
+    # human_model = ColladaModel("resources/woman/Humano_Rig_052-6525_01_T-LOD0.dae", args.sequence_index)
     # human_model = ColladaModel("resources/Louise/louise1.dae")
     # human_model = ColladaModel("resources/ramy_changed/ramy.dae")
     # human_model = ColladaModel("resources/Reaction/Reaction.dae")
@@ -358,6 +359,18 @@ def play_pose_parameters(pose_dict, output_dir = "file"):
         img.save(os.path.join("render_result", output_dir, str(frame_idx) + ".png"))
 
 
+def set_pose_data(pose_dict):
+    human_model.keyframes.clear()
+    human_model.load_keyframes_from_dict(pose_dict)
+
+def get_image(i):
+    image_list = []
+    image = __drawFunc(i, image_list)
+    image = image[:, :, [2, 1, 0]]
+    return image
+
+
+
 def save_pose_into_videos(pose_dict, output_dir="file", file_name="output_video"):
     human_model.keyframes.clear()
     human_model.load_keyframes_from_dict(pose_dict)
@@ -493,6 +506,7 @@ def __drawFunc(frame_index = 0, image_list = []):
     error = glGetError()
     if error != GL_NO_ERROR:
         print("OpenGL Error:", error)
+    return image
 
 def __init_rend():
     glutInit()

@@ -161,7 +161,7 @@ from scipy.spatial.transform import Rotation as R
 #         rend_data.append(pose_dict)
 
 
-with open("pose_data/1.pkl", 'rb') as f:
+with open("pose_data/_2FBDaOPYig_1-3-rgb_front.pkl", 'rb') as f:
     pose_dicts = pickle.load(f)
     frame_num = pose_dicts["smplx_lhand_pose"].shape[0]
     rend_data = []
@@ -176,7 +176,7 @@ with open("pose_data/1.pkl", 'rb') as f:
         pose_dict["smplx_jaw_pose"] = pose_dicts["smplx_jaw_pose"][i]
         rend_data.append(pose_dict)
 
-play_pose_parameters(rend_data, output_dir="vid")
+play_pose_parameters(rend_data, output_dir="vid1")
 #
 # with open("pose_data/processed_quart_val.pkl", 'rb') as f:
 #     import pickle

@@ -89,6 +89,6 @@ vid.release()
 
 print(ava_list)
 
-from animation import *
-
-play_pose_parameters(rend_data, output_dir="vid_ori")
+# from animation import *
+#
+# play_pose_parameters(rend_data, output_dir="vid_ori")

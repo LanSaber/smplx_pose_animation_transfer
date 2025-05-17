@@ -18,22 +18,22 @@ default_pose = {
     'left_shoulder_roll_joint': pi / 2,
     'left_shoulder_yaw_joint': 0,
 
-    'left_elbow_pitch_joint': pi / 2,
-    'left_elbow_roll_joint': 0,
-    #
-    'left_wrist_pitch_joint': 0,
-    'left_wrist_yaw_joint': 0,
+    # 'left_elbow_pitch_joint': pi / 2,
+    # 'left_elbow_roll_joint': 0,
+    # #
+    # 'left_wrist_pitch_joint': 0,
+    # 'left_wrist_yaw_joint': 0,
 
     # Right arm - slightly forward for balance
     'right_shoulder_pitch_joint': 0,
     'right_shoulder_roll_joint': -pi / 2,
     'right_shoulder_yaw_joint': 0,
 
-    'right_elbow_pitch_joint': pi / 2,
-    'right_elbow_roll_joint': 0,
-    #
-    'right_wrist_pitch_joint': 0,
-    'right_wrist_yaw_joint': 0,
+    # 'right_elbow_pitch_joint': pi / 2,
+    # 'right_elbow_roll_joint': 0,
+    # #
+    # 'right_wrist_pitch_joint': 0,
+    # 'right_wrist_yaw_joint': 0,
 }
 
 import pickle
@@ -44,13 +44,15 @@ with open(os.path.join("../pose_data", "1.pkl"), "rb") as f:
 fps = 20
 frame_num = smplx_data["smplx_body_pose"].shape[0]
 
-Kp = 10.0  # proportional gain
-Kd = 1.0   # derivative gain
-
 dof_names = []
 for i in range(model.njnt):
     joint_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
     dof_names.append(joint_name)
+
+body_names = []
+for bid in range(model.nbody):                                 # 0 … nbody-1
+    body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, bid)
+    body_names.append(body_name)
 
 print("Degrees of Freedom (DOF) names:", dof_names)
 
@@ -75,8 +77,8 @@ def apply_animation(model, data, time):
     previous_body = smplx_data["smplx_body_pose"][previous_frame]
     next_body = smplx_data["smplx_body_pose"][next_frame]
 
-    # previous_body = smplx_data["smplx_body_pose"][0]
-    # next_body = smplx_data["smplx_body_pose"][0]
+    previous_body = smplx_data["smplx_body_pose"][0]
+    next_body = smplx_data["smplx_body_pose"][0]
 
     # Calculate the interpolation factor based on the current time
     interpolation_factor = (time % (1000 / fps)) / (1000 / fps)
@@ -153,8 +155,8 @@ def apply_animation(model, data, time):
     left_elbow_matrix = np.matmul(R2_left_elbow, R1_left_elbow)
     right_elbow_matrix = np.matmul(R2_right_elbow, R1_right_elbow)
 
-    left_elbow_euler = R.from_matrix(left_elbow_matrix).as_euler(seq="YXZ", degrees=False)
-    right_elbow_euler = R.from_matrix(right_elbow_matrix).as_euler(seq="YXZ", degrees=False)
+    left_elbow_euler = R.from_matrix(left_elbow_matrix).as_euler(seq="xyz", degrees=False)
+    right_elbow_euler = R.from_matrix(right_elbow_matrix).as_euler(seq="xyz", degrees=False)
 
     # if left_elbow_euler[0]>
 
@@ -172,15 +174,19 @@ def apply_animation(model, data, time):
     left_wrist_matrix_smplx = left_wrist_rotation_smplx.as_matrix()
     right_wrist_matrix_smplx = right_wrist_rotation_smplx.as_matrix()
 
-    left_wrist_matrix = np.matmul(np.matmul(np.linalg.inv(axis_trans), left_wrist_matrix_smplx), axis_trans)
-    right_wrist_matrix = np.matmul(np.matmul(np.linalg.inv(axis_trans), right_wrist_matrix_smplx), axis_trans)
+    R2_left_wrist = np.matmul(np.matmul(np.linalg.inv(axis_trans), left_wrist_matrix_smplx), axis_trans)
+    R2_right_wrist = np.matmul(np.matmul(np.linalg.inv(axis_trans), right_wrist_matrix_smplx), axis_trans)
 
-    left_wrist_euler = R.from_matrix(left_wrist_matrix).as_euler(seq="YXZ", degrees=False)
-    right_wrist_euler = R.from_matrix(right_wrist_matrix).as_euler(seq="YXZ", degrees=False)
+    left_wrist_matrix = np.matmul(R2_left_wrist, R1_left_elbow)
+    right_wrist_matrix = np.matmul(R2_right_wrist, R1_right_elbow)
+
+    left_wrist_euler = R.from_matrix(left_wrist_matrix).as_euler(seq="xyz", degrees=True)
+    right_wrist_euler = R.from_matrix(right_wrist_matrix).as_euler(seq="xyz", degrees=True)
 
 
-    robot_pose = np.concatenate((left_shoudler_euler, left_elbow_euler[0:2], left_wrist_euler[0::2], right_shoudler_euler, right_elbow_euler[0:2], right_wrist_euler[0::2]), axis=0)
-
+    # robot_pose = np.concatenate((left_shoudler_euler, left_elbow_euler[0:2], left_wrist_euler[0::2], right_shoudler_euler, right_elbow_euler[0:2], right_wrist_euler[0::2]), axis=0)
+    robot_pose = np.concatenate((left_shoudler_euler,
+                                 right_shoudler_euler), axis=0)
 
     # Update the model's joint positions with the interpolated body pose
     for i, dof in enumerate(default_pose.keys()):
@@ -209,3 +215,12 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         mujoco.mj_forward(model, data)
         viewer.sync()
         count += 1
+        for dof_name in dof_names:
+            j_id = model.joint(dof_name).id  # numeric id
+            anchor_xyz = data.xpos[j_id]  # (3,) vector
+        body_pos = {}
+        for body_name in body_names:
+            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+            anchor_xyz = data.xpos[body_id]
+            body_pos[body_name] = anchor_xyz
+        dawe = 0

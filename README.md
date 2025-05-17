@@ -6,3 +6,5 @@
 直接运行animation.py
 
 python animation.py --sequence_index 0
+
+远程环境名字: ego_wilor

@@ -1,4 +1,5 @@
 import os.path
+import pickle
 
 import casadi
 import math
@@ -174,36 +175,49 @@ def set_target_pose(x, y, z, roll, pitch, yaw):
     translation = np.array([x, y, z])
     return pin.SE3(rotation, translation)
 
-# Example input values for target positions and orientations
-left_target_pose = {'x': 0, 'y': 0, 'z': 0, 'roll': 0, 'pitch': 0, 'yaw': 0}
-right_target_pose = {'x': 40, 'y': 0, 'z': 3, 'roll': 0, 'pitch': 0, 'yaw': np.pi / 8}
+with open("IK_list.pkl", "rb") as f:
+    IK_target_list = pickle.load(f)
 
-q_warm = np.zeros(h1_dual_arm.model.nq)
+for i in range(len(IK_target_list)):
+    # Example input values for target positions and orientations
+    left_wrist_pos = IK_target_list[i]["left_wrist_pos"]
+    right_wrist_pos = IK_target_list[i]["right_wrist_pos"]
 
-# Set the target poses based on provided x, y, z, roll, pitch, yaw
-L_target = set_target_pose(**left_target_pose)
-R_target = set_target_pose(**right_target_pose)
+    left_wrist_euler = IK_target_list[i]["left_wrist_euler"]
+    right_wrist_euler = IK_target_list[i]["right_wrist_euler"]
 
-# Set initial and target values for optimization
-opti.set_initial(var_q, q_warm)
-opti.set_value(param_q_ik_last, q_warm)
-opti.set_value(param_tf_l, L_target.homogeneous)
-opti.set_value(param_tf_r, R_target.homogeneous)
+    # left_wrist_euler = np.array([0.0, 0.0, 0.0])
+    # right_wrist_euler = np.array([0.0, 0.0, 0.0])
 
-# Show targets
-h1_dual_arm.viewer['L_ee_target'].set_transform(L_target.homogeneous)
-h1_dual_arm.viewer['R_ee_target'].set_transform(R_target.homogeneous)
+    left_target_pose = {'x': left_wrist_pos[0], 'y': left_wrist_pos[1], 'z': left_wrist_pos[2], 'roll': left_wrist_euler[0], 'pitch': left_wrist_euler[1], 'yaw': left_wrist_euler[2]}
+    right_target_pose = {'x': right_wrist_pos[0], 'y': right_wrist_pos[1], 'z': right_wrist_pos[2], 'roll': right_wrist_euler[0], 'pitch': right_wrist_euler[1], 'yaw': right_wrist_euler[2]}
 
-try:
-    opti.solve()
-    q_result = opti.value(var_q)
-    h1_dual_arm.display(q_result)
-    q_warm = q_result
-    print("Success in Convergence!")
-    print("Press <Enter> to quit …")
-    input()
-except:
-    print("Failed in Convergence!")
-    q_result = opti.debug.value(var_q)
-    h1_dual_arm.display(q_result)
-    q_warm = np.zeros(h1_dual_arm.model.nq)  # Reset warm start
+    q_warm = np.zeros(h1_dual_arm.model.nq)
+
+    # Set the target poses based on provided x, y, z, roll, pitch, yaw
+    L_target = set_target_pose(**left_target_pose)
+    R_target = set_target_pose(**right_target_pose)
+
+    # Set initial and target values for optimization
+    opti.set_initial(var_q, q_warm)
+    opti.set_value(param_q_ik_last, q_warm)
+    opti.set_value(param_tf_l, L_target.homogeneous)
+    opti.set_value(param_tf_r, R_target.homogeneous)
+
+    # Show targets
+    h1_dual_arm.viewer['L_ee_target'].set_transform(L_target.homogeneous)
+    h1_dual_arm.viewer['R_ee_target'].set_transform(R_target.homogeneous)
+
+    try:
+        opti.solve()
+        q_result = opti.value(var_q)
+        h1_dual_arm.display(q_result)
+        q_warm = q_result
+        print("Success in Convergence!")
+        print("Press <Enter> to quit …")
+        input()
+    except:
+        print("Failed in Convergence!")
+        q_result = opti.debug.value(var_q)
+        h1_dual_arm.display(q_result)
+        q_warm = np.zeros(h1_dual_arm.model.nq)  # Reset warm start
